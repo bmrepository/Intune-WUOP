@@ -6,7 +6,7 @@ BeforeAll {
     function New-TestState {
         # A healthy device; individual tests override pieces.
         @{
-            OS                   = @{ Build = 26100; UBR = 9711; Arch = 'AMD64' }
+            OS                   = @{ Build = 26100; UBR = 1000; Arch = 'AMD64' }
             PolicyManager        = @{}
             PolicyManagerSystem  = @{}
             Gpo                  = @{}

@@ -3,7 +3,7 @@
 **A self-healing layer for Windows Update on Intune-managed devices.** Intune-WUO works alongside [Windows Autopatch](https://learn.microsoft.com/windows/deployment/windows-autopatch/overview/windows-autopatch-overview). It finds the device-side problems that stop Autopatch-approved updates from installing, fixes the safe ones automatically, and, as a last resort, installs the overdue approved update itself. Results go back to Intune and to local logs.
 
 > [!IMPORTANT]
-> **Project status: pre-release (v0.2), validated on one real device.** All components are implemented and covered by 106 Pester and 39 Node tests. The end-to-end harness (`tools/Invoke-WUOValidation.ps1`) has been run as administrator on a Windows 11 25H2 device enrolled in Autopatch: **27 of 27 steps passed**, then **29 of 29 with the disruptive actions** (DISM cleanup and the update-stack reset). A later re-run skipped the stack reset because Windows was installing updates (the harness now reports skips separately). Note that the stack reset also **resets the Windows Update history list** (installed updates stay installed). That covers install and ACLs, every mode, service repair, repeat suppression, the pause fix, a real MDM sync, the fallback scan and guardrails, Task Scheduler launching the fallback, task self-heal, uninstall and a clean restore. The first run (25 of 27) found two real bugs, now fixed; see [`docs/validation/`](docs/validation/). **Not yet proven:** a real update install by the fallback, the PSWindowsUpdate backend against the real module, hotpatch enrollment (the Autopatch quality policy had not reached the test device), and the generated Graph requests in a tenant. Treat it as pilot-only and start every group in `ReportOnly`. Anyone continuing development should read [HANDOFF.md](HANDOFF.md).
+> **Project status: pre-release (v0.2).** All components are implemented and covered by 106 Pester and 39 Node tests, and the end-to-end validation harness (`tools/Invoke-WUOValidation.ps1`) has passed on a Windows 11 test device enrolled in Autopatch, covering install and ACLs, every mode, service repair, repeat suppression, the pause fix, an MDM sync, the fallback scan and guardrails, Task Scheduler launching the fallback, task self-heal, uninstall and a clean restore. Note that the update-stack reset also **resets the Windows Update history list** (installed updates stay installed). **Not yet proven:** a real update install by the fallback, the PSWindowsUpdate backend against the real module, hotpatch enrollment detection, and the generated Graph requests in a tenant. Treat it as pilot-only and start every group in `ReportOnly`.
 
 ---
 
@@ -331,7 +331,7 @@ Get-ItemProperty -Path 'HKLM:\SOFTWARE\IntuneWUO'
 
 ## Registry and CSP reference
 
-Every registry location that takes part in orchestrating Windows Update on an Intune-managed device. Each entry is marked **(docs)** when Microsoft documents it, or **(observed)** when it was seen on a real Autopatch-enrolled test device (Windows 11 25H2, build 26100) but is not published. Observed locations can change between Windows builds, so Intune-WUO only ever *reads* them.
+Every registry location that takes part in orchestrating Windows Update on an Intune-managed device. Each entry is marked **(docs)** when Microsoft documents it, or **(observed)** when it was seen on a real Autopatch-enrolled Windows 11 test device but is not published. Observed locations can change between Windows builds, so Intune-WUO only ever *reads* them.
 
 ### 1. How a setting travels from Intune to the registry
 
@@ -683,7 +683,6 @@ docs/
   AI-AGENTS.md          Deploy with an AI agent: client setup, tenant connection, safety
   findings.json         Machine-readable findings catalogue (used by the MCP server)
   images/               SVG diagrams (light and dark)
-  discovery/            Read-only discovery snapshots from test devices
 ```
 
 On a device the Win32 app installs to `%ProgramFiles%\IntuneWUO\` (`Module\`, `ThirdParty\`, `Invoke-WUOFallback.ps1`, `version.txt`).
@@ -718,25 +717,25 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Invoke-WUOValida
 
 If the files came from a ZIP download, also run `Get-ChildItem -Recurse .\ | Unblock-File` once. The scripts Intune runs are not affected: Intune runs Remediations and the fallback task with its own policy settings.
 
-Results are written to `docs\validation\<host>-<timestamp>.md` and `.json`. Temporary changes it makes: the BITS start type (set to Disabled, then repaired by the tool), a synthetic user-pause value (then removed by the tool), `HKLM\SOFTWARE\IntuneWUO`, `%ProgramFiles%\IntuneWUO`, the `IntuneWUO` event log and one scheduled task. It also starts the device's own MDM sync task once, which is a normal Intune sync.
+Results are written to `local\validation\<host>-<timestamp>.md` and `.json`. That folder is git-ignored on purpose: the reports contain machine details, so they are never committed. Temporary changes it makes: the BITS start type (set to Disabled, then repaired by the tool), a synthetic user-pause value (then removed by the tool), `HKLM\SOFTWARE\IntuneWUO`, `%ProgramFiles%\IntuneWUO`, the `IntuneWUO` event log and one scheduled task. It also starts the device's own MDM sync task once, which is a normal Intune sync.
 
 ---
 
 ## Roadmap
 
 - [x] Requirements agreed (role, delivery, Autopatch setup, legacy sources, fix scope, restarts, control, engine, schedule, logging, success measures, rollout, hotpatch)
-- [x] Read-only discovery on the first test device (Windows 11 25H2, build 26100)
+- [x] Read-only discovery on a first Windows 11 test device
 - [x] `docs/DESIGN.md`
 - [x] Engine and ReportOnly paths, with Pester tests
 - [x] Fixes (services, user pauses, stale sync, low disk, update-stack reset, task re-registration), each behind its own switch
 - [x] Fallback installer, scheduled task definition and PSWindowsUpdate permitted-calls wrapper
 - [x] Build, signing and packaging script
-- [x] End-to-end validation on a real device: 25 of 27 first (2 bugs found and fixed with regression tests), then 27 of 27, then 29 of 29 including DISM cleanup and the update-stack reset
+- [x] End-to-end validation on a real Windows 11 test device (two bugs found and fixed with regression tests)
 - [ ] Re-run `-IncludeDisruptive` at a quiet moment (no update installing) to prove the stack-reset backup pruning (the harness now plants decoy backups and asserts they are removed)
 - [ ] Tiered stack reset that preserves the Windows Update history (clear `SoftwareDistribution\Download` first; full rename only if scans stay stale)
 - [ ] Test the PSWindowsUpdate backend against the real pinned module (every device run so far used the native COM backend)
 - [ ] Attribute policy values to domain GPO vs local policy (enables `FixPolicyKeys`; today policy-key findings are report-only)
-- [ ] Hotpatch enrollment detection (hotpatch findings stay skipped until then; the Autopatch quality policy has not reached the test device yet)
+- [ ] Hotpatch enrollment detection (hotpatch findings stay skipped until then)
 - [x] Read the Autopatch Client Broker readiness result, ring and timestamp
 - [x] MCP server, skill, Claude Code plugin and agent guide (offline, read-only; tenant writes stay with the agent's own tool after human approval)
 - [ ] Verify the generated Graph requests end to end in a test tenant (payloads follow Microsoft's published schema but have not been sent to a tenant)

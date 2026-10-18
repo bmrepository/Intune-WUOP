@@ -16,7 +16,7 @@
     Windows Update HISTORY list (installed updates stay installed). The harness warns and asks you to type YES, or pass
     -AcceptHistoryReset. Steps that did not exercise their subject are reported as SKIP, not PASS.
 
-    Results: docs\validation\<host>-<date>.json and .md (no secrets are collected).
+    Results: local\validation\<host>-<date>.json and .md. The local folder is git-ignored on purpose: the reports contain machine details and must never be committed (the repository is public).
 .EXAMPLE
     .\tools\Invoke-WUOValidation.ps1
 #>
@@ -31,7 +31,7 @@ $ErrorActionPreference = 'Stop'
 # $PSScriptRoot is empty inside param-block defaults under 'powershell -File' on 5.1, so resolve it here.
 $here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $repo = (Resolve-Path (Join-Path $here '..')).Path
-if (-not $ResultDir) { $ResultDir = Join-Path $repo 'docs\validation' }
+if (-not $ResultDir) { $ResultDir = Join-Path $repo 'local\validation' }
 
 # --- Self-elevate ---------------------------------------------------------------------------------------
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)

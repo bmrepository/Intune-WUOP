@@ -12,7 +12,7 @@ This repository is **Intune-WUO**, an open-source Windows Update orchestration l
 
 ## Continuing development
 
-If you are taking over development (for example while another assistant is unavailable), read **[HANDOFF.md](HANDOFF.md)** first: current state, decisions already made, a prioritised backlog, gotchas, and the definition of done.
+The README *Roadmap* lists what is done and what is not, and [docs/DESIGN.md](docs/DESIGN.md) explains the design and its known limitations. Never commit anything that describes a local machine or tenant (hostnames, IDs, device models, update history, local paths): the repository is public.
 
 ## Non-negotiable rules
 

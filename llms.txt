@@ -16,9 +16,6 @@
 - Run (stdio): `npx -y github:bmrepository/Intune-WUOP`
 - [Server source](https://github.com/bmrepository/Intune-WUOP/tree/main/mcp): tools wuo_overview, wuo_check_prerequisites, wuo_plan_deployment, wuo_generate_graph_requests, wuo_generate_mode_change, wuo_validation_checklist, wuo_interpret_status, wuo_explain_finding, wuo_list_findings, wuo_get_doc, wuo_win32_app_reference
 
-## Continuing development
-- [HANDOFF.md](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/HANDOFF.md): current state, decisions made, prioritised backlog, gotchas, definition of done
-
 ## Optional
 - [Validation harness](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/tools/Invoke-WUOValidation.ps1): end-to-end check on a disposable test device
 - [Build script](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/build/Build-IntuneWUO.ps1): produces the Win32 package, Remediation scripts and the four config packages

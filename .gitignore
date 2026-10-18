@@ -4,3 +4,10 @@ node_modules/
 # Build output
 out/
 *.intunewin
+
+# Machine-specific and local-only material. NEVER commit: the repository is public.
+local/
+HANDOFF.md
+docs/discovery/
+docs/validation/
+*.bundle
