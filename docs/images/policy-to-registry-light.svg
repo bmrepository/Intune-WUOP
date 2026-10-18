@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 906" width="640" height="906" role="img" aria-labelledby="t d" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="24">
+<title id="t">How an Intune setting reaches the registry</title>
+<desc id="d">Intune and Autopatch policy reaches the device over the MDM channel, is stored per provider under PolicyManager, resolved to a winning value, and read by the Windows Update client together with any Group Policy, WSUS or ConfigMgr leftovers. Intune-WUO reads these locations.</desc>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#57606a"/></marker></defs>
+<rect width="640" height="906" fill="#ffffff"/>
+<rect x="20" y="20" width="360" height="54" rx="12" fill="#e6f6ea" stroke="#2e9e5b" stroke-width="2"/>
+<text x="200" y="54.2" text-anchor="middle" font-weight="bold" fill="#1f2328">Intune + Autopatch policy</text>
+<line x1="200" y1="74" x2="200" y2="114" stroke="#57606a" stroke-width="3" marker-end="url(#ah)"/>
+<rect x="20" y="114" width="360" height="85" rx="12" fill="#eaf2ff" stroke="#2f6fdb" stroke-width="2"/>
+<text x="200" y="148.2" text-anchor="middle" font-weight="normal" fill="#1f2328">DMClient: MDM sync over</text>
+<text x="200" y="179.2" text-anchor="middle" font-weight="normal" fill="#1f2328">the management channel</text>
+<line x1="200" y1="199" x2="200" y2="239" stroke="#57606a" stroke-width="3" marker-end="url(#ah)"/>
+<rect x="20" y="239" width="360" height="85" rx="12" fill="#eaf2ff" stroke="#2f6fdb" stroke-width="2"/>
+<text x="200" y="273.2" text-anchor="middle" font-weight="normal" fill="#1f2328">PolicyManager providers:</text>
+<text x="200" y="304.2" text-anchor="middle" font-weight="normal" fill="#1f2328">values as received</text>
+<line x1="200" y1="324" x2="200" y2="364" stroke="#57606a" stroke-width="3" marker-end="url(#ah)"/>
+<rect x="20" y="364" width="360" height="85" rx="12" fill="#eaf2ff" stroke="#2f6fdb" stroke-width="2"/>
+<text x="200" y="398.2" text-anchor="middle" font-weight="normal" fill="#1f2328">PolicyManager current: the</text>
+<text x="200" y="429.2" text-anchor="middle" font-weight="normal" fill="#1f2328">winning value</text>
+<rect x="440" y="333" width="180" height="147" rx="12" fill="#f2f4f7" stroke="#8c959f" stroke-width="2"/>
+<text x="530" y="367.2" text-anchor="middle" font-weight="normal" fill="#1f2328">Autopatch</text>
+<text x="530" y="398.2" text-anchor="middle" font-weight="normal" fill="#1f2328">Client</text>
+<text x="530" y="429.2" text-anchor="middle" font-weight="normal" fill="#1f2328">Broker reads</text>
+<text x="530" y="460.2" text-anchor="middle" font-weight="normal" fill="#1f2328">and reports</text>
+<line x1="440" y1="406.5" x2="380" y2="406.5" stroke="#57606a" stroke-width="3" marker-end="url(#ah)"/>
+<text x="410" y="394.5" text-anchor="middle" font-size="20" font-weight="bold" fill="#57606a">reads</text>
+<line x1="200" y1="449" x2="200" y2="520" stroke="#57606a" stroke-width="3" marker-end="url(#ah)"/>
+<rect x="20" y="520" width="360" height="116" rx="12" fill="#eaf2ff" stroke="#2f6fdb" stroke-width="2"/>
+<text x="200" y="554.2" text-anchor="middle" font-weight="normal" fill="#1f2328">Windows Update client:</text>
+<text x="200" y="585.2" text-anchor="middle" font-weight="normal" fill="#1f2328">UsoSvc, wuauserv,</text>
+<text x="200" y="616.2" text-anchor="middle" font-weight="normal" fill="#1f2328">Orchestrator</text>
+<rect x="440" y="520" width="180" height="116" rx="12" fill="#fde8e8" stroke="#d14343" stroke-width="2"/>
+<text x="530" y="554.2" text-anchor="middle" font-weight="normal" fill="#1f2328">GPO, WSUS,</text>
+<text x="530" y="585.2" text-anchor="middle" font-weight="normal" fill="#1f2328">ConfigMgr</text>
+<text x="530" y="616.2" text-anchor="middle" font-weight="normal" fill="#1f2328">leftovers</text>
+<line x1="440" y1="578" x2="380" y2="578" stroke="#57606a" stroke-width="3" marker-end="url(#ah)"/>
+<text x="410" y="566" text-anchor="middle" font-size="20" font-weight="bold" fill="#57606a">also read</text>
+<line x1="200" y1="636" x2="200" y2="676" stroke="#57606a" stroke-width="3" marker-end="url(#ah)"/>
+<rect x="20" y="676" width="360" height="85" rx="12" fill="#eaf2ff" stroke="#2f6fdb" stroke-width="2"/>
+<text x="200" y="710.2" text-anchor="middle" font-weight="normal" fill="#1f2328">State Windows keeps: pause</text>
+<text x="200" y="741.2" text-anchor="middle" font-weight="normal" fill="#1f2328">status, restart flags</text>
+<line x1="200" y1="761" x2="200" y2="801" stroke="#57606a" stroke-width="3" marker-end="url(#ah)"/>
+<rect x="20" y="801" width="360" height="85" rx="12" fill="#e6f6ea" stroke="#2e9e5b" stroke-width="2"/>
+<text x="200" y="835.2" text-anchor="middle" font-weight="bold" fill="#1f2328">Intune-WUO reads these and</text>
+<text x="200" y="866.2" text-anchor="middle" font-weight="bold" fill="#1f2328">only fixes the safe ones</text>
+</svg>

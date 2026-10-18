@@ -85,6 +85,16 @@ Intune-WUO does four things:
 
 ## Architecture
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/architecture-dark.svg">
+    <img alt="Architecture: Intune and Windows Autopatch deliver policy, a config package, the Win32 app and the Remediation to the device; the IntuneWUO engine on the device reads Intune policy and legacy sources, applies safe fixes, runs a fallback task and reports through logs and Remediation output." src="docs/images/architecture-light.svg" width="640">
+  </picture>
+</p>
+
+<details>
+<summary>Interactive version (Mermaid)</summary>
+
 ```mermaid
 flowchart LR
   subgraph Cloud["Microsoft Intune / Windows Autopatch (cloud)"]
@@ -124,6 +134,8 @@ flowchart LR
   WU -- "scans / installs approved content" --> AP
 ```
 
+</details>
+
 ### Components
 
 | Component | Delivered by | Runs as | Purpose |
@@ -139,6 +151,16 @@ flowchart LR
 ## How a run works
 
 ### Detect and remediate (every 8 hours)
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/detect-remediate-dark.svg">
+    <img alt="Detect and remediate flow, every 8 hours: check mode, collect device state, report blockers, apply allowed fixes with repeat suppression, then write logs and a status line to Intune." src="docs/images/detect-remediate-light.svg" width="640">
+  </picture>
+</p>
+
+<details>
+<summary>Interactive version (Mermaid)</summary>
 
 ```mermaid
 flowchart TD
@@ -163,7 +185,19 @@ flowchart TD
   O --> P
 ```
 
+</details>
+
 ### Fallback install (scheduled task)
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/fallback-dark.svg">
+    <img alt="Fallback install flow: a scheduled task checks the mode and guardrails, scans for overdue approved quality updates, installs exactly those without restarting, and records the result." src="docs/images/fallback-light.svg" width="640">
+  </picture>
+</p>
+
+<details>
+<summary>Interactive version (Mermaid)</summary>
 
 ```mermaid
 flowchart TD
@@ -180,6 +214,8 @@ flowchart TD
   G --> I[Record result per update<br/>State key · JSON log · Event Log]
   I --> J([Restart left to the native<br/>deadline and grace settings])
 ```
+
+</details>
 
 ---
 
@@ -277,6 +313,16 @@ Every registry location that takes part in orchestrating Windows Update on an In
 
 ### 1. How a setting travels from Intune to the registry
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/policy-to-registry-dark.svg">
+    <img alt="How an Intune setting reaches the registry: policy travels over the MDM channel into PolicyManager providers, is resolved to a winning value, and is read by the Windows Update client alongside any Group Policy, WSUS or ConfigMgr leftovers." src="docs/images/policy-to-registry-light.svg" width="640">
+  </picture>
+</p>
+
+<details>
+<summary>Interactive version (Mermaid)</summary>
+
 ```mermaid
 flowchart LR
   I["Intune / Autopatch<br/>update ring · quality · feature · driver policies"] -->|"OMA-DM over MDM channel<br/>(Policy CSP: ./Device/Vendor/MSFT/Policy/Config/Update/*)"| D["DMClient<br/>(MDM enrollment)"]
@@ -288,6 +334,8 @@ flowchart LR
   CB["Autopatch Client Broker<br/>HKLM\\SOFTWARE\\Microsoft\\WindowsAutopatch\\ClientBroker"] -.->|"reads policy & state,<br/>reports readiness"| C
   CB -.-> G
 ```
+
+</details>
 
 Key points:
 

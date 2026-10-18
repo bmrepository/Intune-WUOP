@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 1329" width="640" height="1329" role="img" aria-labelledby="t d" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="24">
+<title id="t">Detect and remediate flow</title>
+<desc id="d">Every 8 hours the Remediation checks the mode, collects device state, reports blockers, and only if the mode and switches allow, applies safe fixes with repeat suppression, then writes logs and a status line.</desc>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9da7b3"/></marker></defs>
+<rect width="640" height="1329" fill="#0d1117"/>
+<rect x="20" y="20" width="360" height="85" rx="12" fill="#12301e" stroke="#3fb96b" stroke-width="2"/>
+<text x="200" y="54.2" text-anchor="middle" font-weight="bold" fill="#e6edf3">Remediation runs every 8</text>
+<text x="200" y="85.2" text-anchor="middle" font-weight="bold" fill="#e6edf3">hours</text>
+<line x1="200" y1="105" x2="200" y2="145" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<rect x="20" y="145" width="360" height="54" rx="12" fill="#3a2e0f" stroke="#e0a526" stroke-width="3"/>
+<text x="200" y="179.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Mode is Off?</text>
+<rect x="440" y="114" width="180" height="116" rx="12" fill="#3a1517" stroke="#f06c6c" stroke-width="2"/>
+<text x="530" y="148.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Yes: stop.</text>
+<text x="530" y="179.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Reports</text>
+<text x="530" y="210.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Disabled</text>
+<line x1="380" y1="172" x2="440" y2="172" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="410" y="160" text-anchor="middle" font-size="20" font-weight="bold" fill="#9da7b3">Yes</text>
+<line x1="200" y1="199" x2="200" y2="270" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="210" y="242.5" text-anchor="start" font-size="20" font-weight="bold" fill="#9da7b3">No</text>
+<rect x="20" y="270" width="360" height="116" rx="12" fill="#14233f" stroke="#5b9dff" stroke-width="2"/>
+<text x="200" y="304.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Collect device state:</text>
+<text x="200" y="335.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">policy, services, pauses,</text>
+<text x="200" y="366.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">sync, disk, Autopatch</text>
+<line x1="200" y1="386" x2="200" y2="426" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<rect x="20" y="426" width="360" height="54" rx="12" fill="#3a2e0f" stroke="#e0a526" stroke-width="3"/>
+<text x="200" y="460.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Blockers found?</text>
+<rect x="440" y="410.5" width="180" height="85" rx="12" fill="#12301e" stroke="#3fb96b" stroke-width="2"/>
+<text x="530" y="444.7" text-anchor="middle" font-weight="normal" fill="#e6edf3">No:</text>
+<text x="530" y="475.7" text-anchor="middle" font-weight="normal" fill="#e6edf3">Compliant</text>
+<line x1="380" y1="453" x2="440" y2="453" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="410" y="441" text-anchor="middle" font-size="20" font-weight="bold" fill="#9da7b3">No</text>
+<line x1="200" y1="480" x2="200" y2="536" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="210" y="516" text-anchor="start" font-size="20" font-weight="bold" fill="#9da7b3">Yes</text>
+<rect x="20" y="536" width="360" height="85" rx="12" fill="#3a2e0f" stroke="#e0a526" stroke-width="3"/>
+<text x="200" y="570.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Mode and switches allow a</text>
+<text x="200" y="601.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">fix?</text>
+<rect x="440" y="536" width="180" height="85" rx="12" fill="#1c2128" stroke="#6e7681" stroke-width="2"/>
+<text x="530" y="570.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">No: report</text>
+<text x="530" y="601.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">only</text>
+<line x1="380" y1="578.5" x2="440" y2="578.5" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="410" y="566.5" text-anchor="middle" font-size="20" font-weight="bold" fill="#9da7b3">No</text>
+<line x1="200" y1="621" x2="200" y2="661" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="210" y="649" text-anchor="start" font-size="20" font-weight="bold" fill="#9da7b3">Yes</text>
+<rect x="20" y="661" width="360" height="116" rx="12" fill="#14233f" stroke="#5b9dff" stroke-width="2"/>
+<text x="200" y="695.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Detect exits 1.</text>
+<text x="200" y="726.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Remediation script runs</text>
+<text x="200" y="757.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">under a lock</text>
+<line x1="200" y1="777" x2="200" y2="817" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<rect x="20" y="817" width="360" height="85" rx="12" fill="#3a2e0f" stroke="#e0a526" stroke-width="3"/>
+<text x="200" y="851.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Fixable, switch on, not a</text>
+<text x="200" y="882.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">repeat?</text>
+<rect x="440" y="801.5" width="180" height="116" rx="12" fill="#1c2128" stroke="#6e7681" stroke-width="2"/>
+<text x="530" y="835.7" text-anchor="middle" font-weight="normal" fill="#e6edf3">No:</text>
+<text x="530" y="866.7" text-anchor="middle" font-weight="normal" fill="#e6edf3">reported,</text>
+<text x="530" y="897.7" text-anchor="middle" font-weight="normal" fill="#e6edf3">not changed</text>
+<line x1="380" y1="859.5" x2="440" y2="859.5" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="410" y="847.5" text-anchor="middle" font-size="20" font-weight="bold" fill="#9da7b3">No</text>
+<line x1="200" y1="902" x2="200" y2="958" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="210" y="938" text-anchor="start" font-size="20" font-weight="bold" fill="#9da7b3">Yes</text>
+<rect x="20" y="958" width="360" height="85" rx="12" fill="#14233f" stroke="#5b9dff" stroke-width="2"/>
+<text x="200" y="992.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Apply fix. Log before and</text>
+<text x="200" y="1023.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">after</text>
+<line x1="200" y1="1043" x2="200" y2="1083" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<rect x="20" y="1083" width="360" height="85" rx="12" fill="#3a2e0f" stroke="#e0a526" stroke-width="3"/>
+<text x="200" y="1117.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Same fix needed 3 times in</text>
+<text x="200" y="1148.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">7 days?</text>
+<rect x="440" y="1067.5" width="180" height="116" rx="12" fill="#3a1517" stroke="#f06c6c" stroke-width="2"/>
+<text x="530" y="1101.7" text-anchor="middle" font-weight="normal" fill="#e6edf3">Yes:</text>
+<text x="530" y="1132.7" text-anchor="middle" font-weight="normal" fill="#e6edf3">suppressed,</text>
+<text x="530" y="1163.7" text-anchor="middle" font-weight="normal" fill="#e6edf3">reported</text>
+<line x1="380" y1="1125.5" x2="440" y2="1125.5" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="410" y="1113.5" text-anchor="middle" font-size="20" font-weight="bold" fill="#9da7b3">Yes</text>
+<line x1="200" y1="1168" x2="200" y2="1224" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="210" y="1204" text-anchor="start" font-size="20" font-weight="bold" fill="#9da7b3">No</text>
+<rect x="20" y="1224" width="360" height="85" rx="12" fill="#12301e" stroke="#3fb96b" stroke-width="2"/>
+<text x="200" y="1258.2" text-anchor="middle" font-weight="bold" fill="#e6edf3">Write logs, events and the</text>
+<text x="200" y="1289.2" text-anchor="middle" font-weight="bold" fill="#e6edf3">status line to Intune</text>
+</svg>

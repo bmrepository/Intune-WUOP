@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 1155" width="640" height="1155" role="img" aria-labelledby="t d" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif" font-size="24">
+<title id="t">Fallback install flow</title>
+<desc id="d">A scheduled task installs overdue, already approved quality updates only when the mode allows it and all guardrails are clear. It never restarts the device.</desc>
+<defs><marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9da7b3"/></marker></defs>
+<rect width="640" height="1155" fill="#0d1117"/>
+<rect x="20" y="20" width="360" height="85" rx="12" fill="#12301e" stroke="#3fb96b" stroke-width="2"/>
+<text x="200" y="54.2" text-anchor="middle" font-weight="bold" fill="#e6edf3">Scheduled task: daily, at</text>
+<text x="200" y="85.2" text-anchor="middle" font-weight="bold" fill="#e6edf3">startup, or catch-up</text>
+<line x1="200" y1="105" x2="200" y2="145" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<rect x="20" y="145" width="360" height="85" rx="12" fill="#3a2e0f" stroke="#e0a526" stroke-width="3"/>
+<text x="200" y="179.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Mode is</text>
+<text x="200" y="210.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">RemediateAndFallback?</text>
+<rect x="440" y="160.5" width="180" height="54" rx="12" fill="#1c2128" stroke="#6e7681" stroke-width="2"/>
+<text x="530" y="194.7" text-anchor="middle" font-weight="normal" fill="#e6edf3">No: skipped</text>
+<line x1="380" y1="187.5" x2="440" y2="187.5" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="410" y="175.5" text-anchor="middle" font-size="20" font-weight="bold" fill="#9da7b3">No</text>
+<line x1="200" y1="230" x2="200" y2="270" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="210" y="258" text-anchor="start" font-size="20" font-weight="bold" fill="#9da7b3">Yes</text>
+<rect x="20" y="270" width="360" height="85" rx="12" fill="#3a2e0f" stroke="#e0a526" stroke-width="3"/>
+<text x="200" y="304.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Another IntuneWUO run</text>
+<text x="200" y="335.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">active?</text>
+<rect x="440" y="285.5" width="180" height="54" rx="12" fill="#1c2128" stroke="#6e7681" stroke-width="2"/>
+<text x="530" y="319.7" text-anchor="middle" font-weight="normal" fill="#e6edf3">Yes: exit</text>
+<line x1="380" y1="312.5" x2="440" y2="312.5" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="410" y="300.5" text-anchor="middle" font-size="20" font-weight="bold" fill="#9da7b3">Yes</text>
+<line x1="200" y1="355" x2="200" y2="395" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="210" y="383" text-anchor="start" font-size="20" font-weight="bold" fill="#9da7b3">No</text>
+<rect x="20" y="395" width="360" height="178" rx="12" fill="#3a2e0f" stroke="#e0a526" stroke-width="3"/>
+<text x="200" y="429.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Guardrails clear? AC</text>
+<text x="200" y="460.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">power, disk space, no</text>
+<text x="200" y="491.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">restart pending, no</text>
+<text x="200" y="522.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">install running, no</text>
+<text x="200" y="553.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">maintenance window</text>
+<rect x="440" y="441.5" width="180" height="85" rx="12" fill="#3a1517" stroke="#f06c6c" stroke-width="2"/>
+<text x="530" y="475.7" text-anchor="middle" font-weight="normal" fill="#e6edf3">No: blocked</text>
+<text x="530" y="506.7" text-anchor="middle" font-weight="normal" fill="#e6edf3">and reported</text>
+<line x1="380" y1="484" x2="440" y2="484" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="410" y="472" text-anchor="middle" font-size="20" font-weight="bold" fill="#9da7b3">No</text>
+<line x1="200" y1="573" x2="200" y2="613" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="210" y="601" text-anchor="start" font-size="20" font-weight="bold" fill="#9da7b3">Yes</text>
+<rect x="20" y="613" width="360" height="116" rx="12" fill="#14233f" stroke="#5b9dff" stroke-width="2"/>
+<text x="200" y="647.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Scan the default Windows</text>
+<text x="200" y="678.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Update service: quality</text>
+<text x="200" y="709.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">and security updates only</text>
+<line x1="200" y1="729" x2="200" y2="769" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<rect x="20" y="769" width="360" height="116" rx="12" fill="#3a2e0f" stroke="#e0a526" stroke-width="3"/>
+<text x="200" y="803.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Offered longer than ring</text>
+<text x="200" y="834.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">deadline + grace, under 3</text>
+<text x="200" y="865.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">failures?</text>
+<rect x="440" y="769" width="180" height="116" rx="12" fill="#12301e" stroke="#3fb96b" stroke-width="2"/>
+<text x="530" y="803.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">No: nothing</text>
+<text x="530" y="834.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">overdue,</text>
+<text x="530" y="865.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">exit</text>
+<line x1="380" y1="827" x2="440" y2="827" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="410" y="815" text-anchor="middle" font-size="20" font-weight="bold" fill="#9da7b3">No</text>
+<line x1="200" y1="885" x2="200" y2="925" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<text x="210" y="913" text-anchor="start" font-size="20" font-weight="bold" fill="#9da7b3">Yes</text>
+<rect x="20" y="925" width="360" height="85" rx="12" fill="#14233f" stroke="#5b9dff" stroke-width="2"/>
+<text x="200" y="959.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">Install exactly those</text>
+<text x="200" y="990.2" text-anchor="middle" font-weight="normal" fill="#e6edf3">updates. Never restart</text>
+<line x1="200" y1="1010" x2="200" y2="1050" stroke="#9da7b3" stroke-width="3" marker-end="url(#ah)"/>
+<rect x="20" y="1050" width="360" height="85" rx="12" fill="#12301e" stroke="#3fb96b" stroke-width="2"/>
+<text x="200" y="1084.2" text-anchor="middle" font-weight="bold" fill="#e6edf3">Record result in logs,</text>
+<text x="200" y="1115.2" text-anchor="middle" font-weight="bold" fill="#e6edf3">events and state</text>
+</svg>
