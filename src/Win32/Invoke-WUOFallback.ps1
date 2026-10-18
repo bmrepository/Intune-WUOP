@@ -8,11 +8,14 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$InstallDir = $PSScriptRoot
+    [string]$InstallDir
 )
 
 $ErrorActionPreference = 'Stop'
 $lock = $null
+# $PSScriptRoot is empty inside param-block defaults under 'powershell -File' on 5.1 (and the scheduled task passes no arguments),
+# so resolve the install folder here.
+if (-not $InstallDir) { $InstallDir = Split-Path -Parent $PSCommandPath }
 
 try {
     Import-Module (Join-Path $InstallDir 'Module\IntuneWUO.psd1') -Force

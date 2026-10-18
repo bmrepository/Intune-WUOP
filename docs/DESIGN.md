@@ -134,3 +134,4 @@ Not unit-testable and therefore a manual validation step on a **disposable test 
 - The maintenance-window guardrail is conservative: any enabled native window disables the fallback rather than computing the window.
 - `WaaSMedicSvc` is protected by Windows; repairing its start type is expected to fail and will be reported as such.
 - PSWindowsUpdate result mapping is based on its documented output and is untested against the real module.
+- **On-device validation (2026-10-18):** the first real run found two bugs that mock-based tests could not: the fallback script defaulted its install folder from `` in a param block (empty under `-File` on Windows PowerShell 5.1, and the scheduled task passes no arguments), and the task-status state was an object indexed like a hashtable. Both are fixed; Pester now scans every script for `` in param defaults and runs the built fallback with no arguments.

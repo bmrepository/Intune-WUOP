@@ -174,6 +174,38 @@ Describe 'Autopatch Client Broker readiness' {
     }
 }
 
+Describe 'Fallback task state (regression: the real status object is not a hashtable)' {
+    BeforeEach { $cfg = ConvertTo-WUOConfig -Raw @{ Mode = 'RemediateAndFallback' } }
+
+    It 'Get-WUOFallbackTaskStatus returns a dictionary like every other state section' {
+        $s = Get-WUOFallbackTaskStatus
+        $s | Should -BeOfType [hashtable]
+        $s.ContainsKey('Present') | Should -BeTrue
+        $s.ContainsKey('Enabled') | Should -BeTrue
+    }
+    It 'flags a missing task whether the state holds a hashtable or an object' {
+        foreach ($task in @(@{ Present = $false; Enabled = $false }, [pscustomobject]@{ Present = $false; Enabled = $false })) {
+            $s = New-TestState; $s.FallbackTask = $task
+            Get-Ids $s $cfg | Should -Contain 'FALLBACK_TASK_MISSING'
+        }
+    }
+    It 'flags a disabled task, and is quiet when the task is present and enabled' {
+        $s = New-TestState; $s.FallbackTask = [pscustomobject]@{ Present = $true; Enabled = $false }
+        Get-Ids $s $cfg | Should -Contain 'FALLBACK_TASK_MISSING'
+        $s.FallbackTask = [pscustomobject]@{ Present = $true; Enabled = $true }
+        Get-Ids $s $cfg | Should -Not -Contain 'FALLBACK_TASK_MISSING'
+    }
+    It 'does not look at the task unless the mode is RemediateAndFallback' {
+        $s = New-TestState; $s.FallbackTask = @{ Present = $false; Enabled = $false }
+        Get-Ids $s (ConvertTo-WUOConfig -Raw @{ Mode = 'Remediate' }) | Should -Not -Contain 'FALLBACK_TASK_MISSING'
+    }
+    It 'reads Autopatch state from an object as well as a hashtable' {
+        $s = New-TestState
+        $s.Autopatch = [pscustomobject]@{ BrokerPresent = $true; ResultsBitmask = 4; ErrorCodes = @(); ReadinessAt = (Get-Date) }
+        Get-Ids $s $cfg | Should -Contain 'AUTOPATCH_READINESS_FAILED'
+    }
+}
+
 Describe 'Format-WUOStatus' {
     BeforeAll { $cfg = ConvertTo-WUOConfig -Raw @{ Mode = 'Remediate' } }
 

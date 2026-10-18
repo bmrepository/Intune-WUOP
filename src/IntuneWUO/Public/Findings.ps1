@@ -1,3 +1,11 @@
+function Get-WUOStateValue {
+    # Reads $Name from a hashtable/dictionary or from an object's property; $null when absent.
+    param($Source, [string]$Name)
+    if ($null -eq $Source) { return $null }
+    if ($Source -is [System.Collections.IDictionary]) { if ($Source.Contains($Name)) { return $Source[$Name] } else { return $null } }
+    $prop = $Source.PSObject.Properties[$Name]
+    if ($prop) { $prop.Value } else { $null }
+}
 function New-WUOFinding {
     param(
         [Parameter(Mandatory)][string]$Id,
@@ -113,12 +121,14 @@ function Get-WUOFinding {
 
     # Autopatch's own verdict. A missing broker is informational: it is optional and not on every device.
     $ap = if ($State.Contains('Autopatch')) { $State['Autopatch'] } else { $null }
-    if ($ap -and $ap['BrokerPresent']) {
-        if (($null -ne $ap['ResultsBitmask'] -and [int64]$ap['ResultsBitmask'] -ne 0) -or @($ap['ErrorCodes']).Count -gt 0) {
+    if ($ap -and (Get-WUOStateValue $ap 'BrokerPresent')) {
+        $bitmask = Get-WUOStateValue $ap 'ResultsBitmask'
+        if (($null -ne $bitmask -and [int64]$bitmask -ne 0) -or @(Get-WUOStateValue $ap 'ErrorCodes').Count -gt 0) {
             $findings.Add((New-WUOFinding -Id 'AUTOPATCH_READINESS_FAILED' -Severity Warning `
-                -Message ("Autopatch device readiness failed (ResultsBitmask={0}, ErrorCodes={1})." -f $ap['ResultsBitmask'], (@($ap['ErrorCodes']) -join ';'))))
+                -Message ("Autopatch device readiness failed (ResultsBitmask={0}, ErrorCodes={1})." -f $bitmask, (@(Get-WUOStateValue $ap 'ErrorCodes') -join ';'))))
         }
-        if ($ap['ReadinessAt'] -and ($Now - [datetime]$ap['ReadinessAt']).TotalDays -gt 7) {
+        $readinessAt = Get-WUOStateValue $ap 'ReadinessAt'
+        if ($readinessAt -and ($Now - [datetime]$readinessAt).TotalDays -gt 7) {
             $findings.Add((New-WUOFinding -Id 'AUTOPATCH_READINESS_STALE' -Severity Warning `
                 -Message 'The Autopatch Client Broker has not reported device readiness for over 7 days.'))
         }
@@ -130,7 +140,7 @@ function Get-WUOFinding {
 
     $task = if ($State.Contains('FallbackTask')) { $State['FallbackTask'] } else { $null }
     if ($Config.Mode -eq 'RemediateAndFallback' -and $task) {
-        if (-not $task['Present'] -or -not $task['Enabled']) {
+        if (-not (Get-WUOStateValue $task 'Present') -or -not (Get-WUOStateValue $task 'Enabled')) {
             $findings.Add((New-WUOFinding -Id 'FALLBACK_TASK_MISSING' -Severity Warning -AutoFix Services `
                 -Message 'The fallback scheduled task is missing or disabled.'))
         }

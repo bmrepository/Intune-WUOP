@@ -3,7 +3,7 @@
 **A self-healing layer for Windows Update on Intune-managed devices.** Intune-WUO works alongside [Windows Autopatch](https://learn.microsoft.com/windows/deployment/windows-autopatch/overview/windows-autopatch-overview). It finds the device-side problems that stop Autopatch-approved updates from installing, fixes the safe ones automatically, and, as a last resort, installs the overdue approved update itself. Results go back to Intune and to local logs.
 
 > [!IMPORTANT]
-> **Project status: pre-release (v0.2).** All components are implemented and covered by 76 Pester tests, and the read-only paths have been run on one real device (which is now enrolled in Autopatch, ring Test). **The fix actions, the scheduled task and the install paths have not yet been exercised on a real device**, and the PSWindowsUpdate backend has not been tested against the real module. Treat it as pilot-only until the [validation steps](#roadmap) are done. Start every group in `ReportOnly`.
+> **Project status: pre-release (v0.2), validated on one real device.** All components are implemented and covered by 100 Pester and 39 Node tests. The end-to-end harness (`tools/Invoke-WUOValidation.ps1`) has been run as administrator on a Windows 11 25H2 device enrolled in Autopatch: **25 of 27 steps passed** (install, ACLs, modes, service repair, repeat suppression, pause fix, real MDM sync, fallback guardrails, uninstall, and a clean restore). The two failures were real bugs, now fixed and covered by regression tests; a re-run to confirm them is pending. See [`docs/validation/`](docs/validation/). Not yet proven: a real update install by the fallback, the PSWindowsUpdate backend against the real module, and the generated Graph requests in a tenant. Treat it as pilot-only and start every group in `ReportOnly`.
 
 ---
 
@@ -731,7 +731,8 @@ Results are written to `docs\validation\<host>-<timestamp>.md` and `.json`. Temp
 - [x] Fixes (services, user pauses, stale sync, low disk, update-stack reset, task re-registration), each behind its own switch
 - [x] Fallback installer, scheduled task definition and PSWindowsUpdate permitted-calls wrapper
 - [x] Build, signing and packaging script
-- [ ] Run the fixes, the task registration and an install end to end on a **disposable test device**
+- [x] First end-to-end run on a real device: 25 of 27 steps passed; the 2 failures (fallback task launched with no arguments; task self-heal state type) are fixed with regression tests
+- [ ] Re-run the validation harness to confirm those two fixes (needs one UAC approval), then run it with `-IncludeDisruptive`
 - [ ] Test the PSWindowsUpdate backend against the real pinned module
 - [ ] Attribute policy values to domain GPO vs local policy (enables `FixPolicyKeys`; today policy-key findings are report-only)
 - [ ] Hotpatch enrollment detection (hotpatch findings stay skipped until then)

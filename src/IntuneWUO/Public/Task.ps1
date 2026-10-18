@@ -67,5 +67,5 @@ function Get-WUOFallbackTaskStatus {
     [CmdletBinding()]
     param()
     $t = Get-ScheduledTask -TaskPath $script:WUOTaskPath -TaskName $script:WUOTaskName -ErrorAction SilentlyContinue
-    [pscustomobject]@{ Present = [bool]$t; Enabled = [bool]($t -and $t.State -ne 'Disabled') }
+    @{ Present = [bool]$t; Enabled = [bool]($t -and $t.State -ne 'Disabled') }
 }

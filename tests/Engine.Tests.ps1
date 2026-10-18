@@ -111,6 +111,40 @@ Describe 'Fallback scheduled task definition' {
     }
 }
 
+Describe 'Scripts launched with powershell -File (regressions found by the on-device validation)' {
+    It 'no script uses $PSScriptRoot in a param-block default (it is empty there under -File on Windows PowerShell 5.1)' {
+        $root = Join-Path $PSScriptRoot '..'
+        $files = Get-ChildItem -Path (Join-Path $root 'src\Remediation'), (Join-Path $root 'src\Win32'), (Join-Path $root 'build'), (Join-Path $root 'tools') -Filter '*.ps1' -File
+        $files.Count | Should -BeGreaterThan 5
+        $offenders = foreach ($f in $files) {
+            $tokens = $null; $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$errors)
+            $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.ParameterAst] -and $n.DefaultValue }, $true) | ForEach-Object {
+                $uses = $_.DefaultValue.FindAll({ param($v) $v -is [System.Management.Automation.Language.VariableExpressionAst] -and $v.VariablePath.UserPath -in 'PSScriptRoot', 'PSCommandPath' }, $true)
+                if ($uses.Count -gt 0) { "$($f.Name): -$($_.Name.VariablePath.UserPath)" }
+            }
+        }
+        $offenders | Should -BeNullOrEmpty
+    }
+
+    It 'the built fallback script runs with NO arguments, exactly as the scheduled task launches it' {
+        $cfg = Get-ItemProperty 'HKLM:\SOFTWARE\IntuneWUO' -ErrorAction SilentlyContinue
+        if ($cfg -and $cfg.Mode -eq 'RemediateAndFallback') { Set-ItResult -Skipped -Because 'this machine is in RemediateAndFallback; the script would do a real scan'; return }
+        $out = Join-Path $TestDrive 'out-fallback'
+        & (Join-Path $PSScriptRoot '..\build\Build-IntuneWUO.ps1') -Version 1.2.4 -OutDir $out -WarningAction SilentlyContinue | Out-Null
+        $o = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $out 'Win32\Invoke-WUOFallback.ps1') 2>&1
+        $LASTEXITCODE | Should -Be 0 -Because (($o | ForEach-Object { "$_" }) -join ' ')
+    }
+
+    It 'the built Detect script runs with no arguments and prints a status line' {
+        $out = Join-Path $TestDrive 'out-detect'
+        & (Join-Path $PSScriptRoot '..\build\Build-IntuneWUO.ps1') -Version 1.2.5 -OutDir $out -WarningAction SilentlyContinue | Out-Null
+        $mod = Join-Path $out 'Win32\Module\IntuneWUO.psd1'
+        $o = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $out 'Remediation\Detect-WUO.ps1') -ModulePath $mod 2>&1 | ForEach-Object { "$_" }) -join "`n"
+        $o | Should -Match '^WUO\|v1\|'
+    }
+}
+
 Describe 'Build script' {
     It 'stamps config packages and the version' {
         $out = Join-Path $TestDrive 'out'

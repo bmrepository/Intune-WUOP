@@ -318,7 +318,7 @@ try {
     # ---------------------------------------------------------------- fallback
     Step 'Fallback is skipped unless mode is RemediateAndFallback' {
         Set-WUOReg @{ Mode = 'Remediate' }
-        $r = Invoke-AsSystem $fallback @('-InstallDir', $installDir)
+        $r = Invoke-AsSystem $fallback   # no arguments: exactly how the scheduled task launches it
         Assert ($r.ExitCode -eq 0) "exit $($r.ExitCode): $($r.Output)"
         $log = Get-Content (Join-Path $env:ProgramData 'Microsoft\IntuneManagementExtension\Logs\IntuneWUO\IntuneWUO.jsonl') -Tail 3 | Out-String
         Assert ($log -match 'fallback skipped') $log
@@ -326,7 +326,7 @@ try {
     }
     Step 'Fallback: real scan, nothing overdue -> installs nothing' {
         Set-WUOReg @{ Mode = 'RemediateAndFallback' }
-        $r = Invoke-AsSystem $fallback @('-InstallDir', $installDir)
+        $r = Invoke-AsSystem $fallback   # no arguments: exactly how the scheduled task launches it
         Assert ($r.ExitCode -eq 0) "exit $($r.ExitCode): $($r.Output)"
         $log = Get-Content (Join-Path $env:ProgramData 'Microsoft\IntuneManagementExtension\Logs\IntuneWUO\IntuneWUO.jsonl') -Tail 12 | Out-String
         Assert ($log -match 'Backend:') 'backend logged'
@@ -336,7 +336,7 @@ try {
     }
     Step 'Fallback guardrail: low disk blocks it' {
         Set-WUOReg @{ Mode = 'RemediateAndFallback'; MinFreeDiskGB = 500 }
-        $r = Invoke-AsSystem $fallback @('-InstallDir', $installDir)
+        $r = Invoke-AsSystem $fallback   # no arguments: exactly how the scheduled task launches it
         Assert ($r.ExitCode -eq 0) "exit $($r.ExitCode)"
         $log = Get-Content (Join-Path $env:ProgramData 'Microsoft\IntuneManagementExtension\Logs\IntuneWUO\IntuneWUO.jsonl') -Tail 6 | Out-String
         Assert ($log -match 'Blocked by guardrail\(s\): .*DISK_LOW') $log
@@ -349,7 +349,10 @@ try {
         $deadline = (Get-Date).AddSeconds(120)
         do { Start-Sleep -Seconds 2; $t = Get-ScheduledTask -TaskPath '\IntuneWUO\' -TaskName 'IntuneWUO-Fallback' } while ($t.State -eq 'Running' -and (Get-Date) -lt $deadline)
         $info = $t | Get-ScheduledTaskInfo
-        Assert ($info.LastTaskResult -eq 0) ("LastTaskResult 0x{0:X}" -f $info.LastTaskResult)
+        $logFile = Join-Path $env:ProgramData 'Microsoft\IntuneManagementExtension\Logs\IntuneWUO\IntuneWUO.jsonl'
+        $recent = if (Test-Path $logFile) { (Get-Content $logFile -Tail 8) -join "`n" } else { '(no log file)' }
+        Assert ($info.LastTaskResult -eq 0) ("LastTaskResult 0x{0:X}. Recent log: {1}" -f $info.LastTaskResult, $recent)
+        Assert ($recent -match 'Fallback') 'the task ran but never reached the fallback script (nothing logged by component Fallback)'
         "LastTaskResult 0, last run $($info.LastRunTime)"
     }
     Step 'Fallback installed no Windows updates' {
