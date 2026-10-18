@@ -3,7 +3,7 @@
 **A self-healing layer for Windows Update on Intune-managed devices.** Intune-WUO works alongside [Windows Autopatch](https://learn.microsoft.com/windows/deployment/windows-autopatch/overview/windows-autopatch-overview). It finds the device-side problems that stop Autopatch-approved updates from installing, fixes the safe ones automatically, and, as a last resort, installs the overdue approved update itself. Results go back to Intune and to local logs.
 
 > [!IMPORTANT]
-> **Project status: pre-release (v0.2).** All components are implemented and covered by 69 Pester tests, and the read-only paths have been run on one real device. **The fix actions, the scheduled task and the install paths have not yet been exercised on a real device**, and the PSWindowsUpdate backend has not been tested against the real module. Treat it as pilot-only until the [validation steps](#roadmap) are done. Start every group in `ReportOnly`.
+> **Project status: pre-release (v0.2).** All components are implemented and covered by 76 Pester tests, and the read-only paths have been run on one real device (which is now enrolled in Autopatch, ring Test). **The fix actions, the scheduled task and the install paths have not yet been exercised on a real device**, and the PSWindowsUpdate backend has not been tested against the real module. Treat it as pilot-only until the [validation steps](#roadmap) are done. Start every group in `ReportOnly`.
 
 ---
 
@@ -199,7 +199,7 @@ flowchart TD
 | **Restart** | Restart pending past its deadline. `PendingFileRenameOperations` alone doesn't count, because it's often set on healthy devices | **Report** |
 | **Compliance** | On the latest approved LCU, or the current hotpatch on top of the current baseline | **Report**, and feeds the fallback |
 | **Environment** | Language mode, WDAC/App Control, AppLocker, WinHTTP proxy, endpoint reachability | **Report** as capability flags. Also decides which update backend to use |
-| **Autopatch readiness** | Planned: read `DRCResults.json.log` when the Autopatch Client Broker is installed | Not implemented yet |
+| **Autopatch readiness** | The Autopatch Client Broker's latest `ResultsBitmask`/`ErrorCodes` and how recent its readiness timestamp is (see the [registry reference](#5-windows-autopatch-on-the-device)) | **Report** (`AUTOPATCH_READINESS_FAILED`, `AUTOPATCH_READINESS_STALE`; the ring is included in the status line). A missing broker is informational only |
 
 ---
 
@@ -617,6 +617,17 @@ Install-Module Pester -Scope CurrentUser   # Pester 5 or later
 Invoke-Pester -Path .\tests -Output Detailed
 ```
 
+### Validating on a real device
+
+`tools\Invoke-WUOValidation.ps1` is an end-to-end check you run on a **test device**. It elevates itself (one UAC prompt), then builds the package, installs it for real, and exercises every mode, the service and pause fixes, the MDM sync trigger, the fallback (including a guardrail), the task self-heal, and uninstall. Remediation scripts and the fallback run as SYSTEM through a one-off scheduled task, exactly the account Intune uses. It never installs a Windows update, and it restores everything it touched, then verifies that the device is back to its starting state.
+
+```powershell
+.\tools\Invoke-WUOValidation.ps1                    # safe checks
+.\tools\Invoke-WUOValidation.ps1 -IncludeDisruptive # also runs DISM component cleanup and the update-stack reset
+```
+
+Results are written to `docs\validation\<host>-<timestamp>.md` and `.json`. Temporary changes it makes: the BITS start type (set to Disabled, then repaired by the tool), a synthetic user-pause value (then removed by the tool), `HKLM\SOFTWARE\IntuneWUO`, `%ProgramFiles%\IntuneWUO`, the `IntuneWUO` event log and one scheduled task. It also starts the device's own MDM sync task once, which is a normal Intune sync.
+
 ---
 
 ## Roadmap
@@ -632,7 +643,7 @@ Invoke-Pester -Path .\tests -Output Detailed
 - [ ] Test the PSWindowsUpdate backend against the real pinned module
 - [ ] Attribute policy values to domain GPO vs local policy (enables `FixPolicyKeys`; today policy-key findings are report-only)
 - [ ] Hotpatch enrollment detection (hotpatch findings stay skipped until then)
-- [ ] Optionally read the Autopatch readiness file (`DRCResults.json.log`) once the Client Broker is deployed
+- [x] Read the Autopatch Client Broker readiness result, ring and timestamp
 - [ ] Validation on a 24H2/25H2 device (hybrid-joined or co-managed), then the pilot
 
 ## License

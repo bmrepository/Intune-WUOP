@@ -15,14 +15,17 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version,
-    [string]$OutDir = (Join-Path $PSScriptRoot '..\out'),
+    [string]$OutDir,
     [string]$PSWindowsUpdatePath,
     [string]$CertThumbprint,
     [string]$IntuneWinAppUtil
 )
 
 $ErrorActionPreference = 'Stop'
-$repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+# $PSScriptRoot is empty inside param-block defaults under 'powershell -File' on 5.1, so resolve it here.
+$here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$repo = (Resolve-Path (Join-Path $here '..')).Path
+if (-not $OutDir) { $OutDir = Join-Path $repo 'out' }
 $src = Join-Path $repo 'src'
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 

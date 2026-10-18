@@ -61,6 +61,9 @@ Severity: Critical, Warning, Info. "Auto-fix" names the `Fix*` switch category; 
 | `DISK_LOW` | Warning | SyncAndCleanup | Free space below `MinFreeDiskGB` |
 | `RESTART_PENDING` | Info | - | CBS or Windows Update restart flag set |
 | `CONFIGMGR_PRESENT` | Info | - | ConfigMgr client present |
+| `AUTOPATCH_READINESS_FAILED` | Warning | - | The Autopatch Client Broker's latest `RunDeviceReadinessChecks` has a non-zero `ResultsBitmask` or any `ErrorCodes` |
+| `AUTOPATCH_READINESS_STALE` | Warning | - | Broker readiness timestamp older than 7 days |
+| `AUTOPATCH_BROKER_ABSENT` | Info | - | No `HKLM\SOFTWARE\Microsoft\WindowsAutopatch\ClientBroker` key |
 | `FALLBACK_TASK_MISSING` | Warning | Services | Mode is `RemediateAndFallback` and the task is missing or disabled (fix = re-register) |
 | `HOTPATCH_UNSUPPORTED_OS`, `HOTPATCH_VBS_NOT_RUNNING`, `HOTPATCH_CHPE_ENABLED` | Warning | - | Only when hotpatch enrollment is known (see limitations) |
 
@@ -127,7 +130,7 @@ Not unit-testable and therefore a manual validation step on a **disposable test 
 
 - Policy values are not yet attributed to domain GPO vs local policy, so the three Autopatch conflict values and WSUS remnants are report-only and `FixPolicyKeys` currently has no fix to run.
 - Hotpatch enrollment is not read yet; hotpatch findings are skipped until it is.
-- The Autopatch readiness file (`DRCResults.json.log`) is not read; the Client Broker was not present on the first test device.
+- Autopatch readiness comes from the Client Broker's registry key and `ClientBroker.log` (observed on broker 1.2509.201.3, not a documented contract). The documented `DRCResults.json.log` path belongs to an older agent and is not read. The broker's `ActionsFeedUri` value carries a signed access token and is deliberately never read.
 - The maintenance-window guardrail is conservative: any enabled native window disables the fallback rather than computing the window.
 - `WaaSMedicSvc` is protected by Windows; repairing its start type is expected to fail and will be reported as such.
 - PSWindowsUpdate result mapping is based on its documented output and is untested against the real module.
