@@ -111,6 +111,42 @@ Describe 'Fallback scheduled task definition' {
     }
 }
 
+Describe 'Validation harness bookkeeping (a step that did not run must not count as a pass)' {
+    BeforeAll {
+        # Pull Step/Assert out of the harness (it needs admin to run as a whole) and exercise them directly.
+        $tokens = $null; $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot '..\tools\Invoke-WUOValidation.ps1'), [ref]$tokens, [ref]$errors)
+        $fns = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in 'Step', 'Assert' }, $true)
+        $script:harnessCode = ($fns | ForEach-Object { $_.Extent.Text }) -join "`n"
+    }
+    BeforeEach {
+        $script:results = New-Object System.Collections.Generic.List[object]
+        . ([scriptblock]::Create($script:harnessCode))
+    }
+    It 'marks a body that returns SKIPPED as skipped, not as a plain pass' {
+        Step 'ran' { 'ok' } 6>$null
+        Step 'did not run' { 'SKIPPED: nothing to do' } 6>$null
+        Step 'broke' { throw 'boom' } 6>$null
+        $r = $script:results
+        $r[0].skipped | Should -BeFalse
+        $r[1].skipped | Should -BeTrue
+        $r[1].pass | Should -BeTrue
+        $r[2].pass | Should -BeFalse
+        @($r | Where-Object { $_.pass -and -not $_.skipped }).Count | Should -Be 1
+    }
+    It 'a failed assertion is a failure with its message' {
+        Step 'asserts' { Assert $false 'nope' } 6>$null
+        $script:results[0].pass | Should -BeFalse
+        $script:results[0].detail | Should -Match 'Assertion failed: nope'
+    }
+    It 'the disruptive reset warns about the history reset and requires confirmation' {
+        $text = Get-Content (Join-Path $PSScriptRoot '..\tools\Invoke-WUOValidation.ps1') -Raw
+        $text | Should -Match 'RESETS THE UPDATE HISTORY'
+        $text | Should -Match "Type YES to continue"
+        $text | Should -Match 'AcceptHistoryReset'
+    }
+}
+
 Describe 'Scripts launched with powershell -File (regressions found by the on-device validation)' {
     It 'no script uses $PSScriptRoot in a param-block default (it is empty there under -File on Windows PowerShell 5.1)' {
         $root = Join-Path $PSScriptRoot '..'

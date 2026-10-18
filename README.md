@@ -3,7 +3,7 @@
 **A self-healing layer for Windows Update on Intune-managed devices.** Intune-WUO works alongside [Windows Autopatch](https://learn.microsoft.com/windows/deployment/windows-autopatch/overview/windows-autopatch-overview). It finds the device-side problems that stop Autopatch-approved updates from installing, fixes the safe ones automatically, and, as a last resort, installs the overdue approved update itself. Results go back to Intune and to local logs.
 
 > [!IMPORTANT]
-> **Project status: pre-release (v0.2), validated on one real device.** All components are implemented and covered by 103 Pester and 39 Node tests. The end-to-end harness (`tools/Invoke-WUOValidation.ps1`) has been run as administrator on a Windows 11 25H2 device enrolled in Autopatch: **27 of 27 steps passed**, and **29 of 29 with the disruptive actions** (DISM cleanup and the update-stack reset). That covers install and ACLs, every mode, service repair, repeat suppression, the pause fix, a real MDM sync, the fallback scan and guardrails, Task Scheduler launching the fallback, task self-heal, uninstall and a clean restore. The first run (25 of 27) found two real bugs, now fixed; see [`docs/validation/`](docs/validation/). **Not yet proven:** a real update install by the fallback, the PSWindowsUpdate backend against the real module, hotpatch enrollment (the Autopatch quality policy had not reached the test device), and the generated Graph requests in a tenant. Treat it as pilot-only and start every group in `ReportOnly`. Anyone continuing development should read [HANDOFF.md](HANDOFF.md).
+> **Project status: pre-release (v0.2), validated on one real device.** All components are implemented and covered by 106 Pester and 39 Node tests. The end-to-end harness (`tools/Invoke-WUOValidation.ps1`) has been run as administrator on a Windows 11 25H2 device enrolled in Autopatch: **27 of 27 steps passed**, then **29 of 29 with the disruptive actions** (DISM cleanup and the update-stack reset). A later re-run skipped the stack reset because Windows was installing updates (the harness now reports skips separately). Note that the stack reset also **resets the Windows Update history list** (installed updates stay installed). That covers install and ACLs, every mode, service repair, repeat suppression, the pause fix, a real MDM sync, the fallback scan and guardrails, Task Scheduler launching the fallback, task self-heal, uninstall and a clean restore. The first run (25 of 27) found two real bugs, now fixed; see [`docs/validation/`](docs/validation/). **Not yet proven:** a real update install by the fallback, the PSWindowsUpdate backend against the real module, hotpatch enrollment (the Autopatch quality policy had not reached the test device), and the generated Graph requests in a tenant. Treat it as pilot-only and start every group in `ReportOnly`. Anyone continuing development should read [HANDOFF.md](HANDOFF.md).
 
 ---
 
@@ -256,7 +256,7 @@ flowchart TD
 | **ConfigMgr** | Co-management workloads for Windows Update and Device configuration, and the Software Updates client agent | **Report** only |
 | **Pauses** | User pause (not set by policy) | **Fix**. A pause Intune is actively setting is never touched |
 | **Services** | `wuauserv`, `UsoSvc`, `BITS`, `WaaSMedicSvc`, `wlidsvc`, `DiagTrack` compared with their *default* start types (trigger-start services are often stopped, and that's healthy) | **Fix** |
-| **Update stack** | Scans failing again and again | **Fix**: reset components, at most once per `ResetCooldownDays` |
+| **Update stack** | Scans failing again and again | **Fix**: reset components, at most once per `ResetCooldownDays`. **Side effect: this renames `SoftwareDistribution`, which also resets the Windows Update history list in Settings (installed updates stay installed).** Only the newest backup is kept. Set `FixServices` to 0 to turn this fix off |
 | **Diagnostic data** | At least *Required* (needed by Autopatch) | **Report** |
 | **MDM sync** | Last sync older than `SyncStaleHours` | **Fix**: trigger a sync |
 | **Disk** | Free space below `MinFreeDiskGB` | **Fix**: safe cleanup. **Report** if still low afterwards |
@@ -732,7 +732,8 @@ Results are written to `docs\validation\<host>-<timestamp>.md` and `.json`. Temp
 - [x] Fallback installer, scheduled task definition and PSWindowsUpdate permitted-calls wrapper
 - [x] Build, signing and packaging script
 - [x] End-to-end validation on a real device: 25 of 27 first (2 bugs found and fixed with regression tests), then 27 of 27, then 29 of 29 including DISM cleanup and the update-stack reset
-- [ ] Re-run the harness once more to confirm the new stack-reset backup pruning leaves no `*.bak-*` folders (needs one UAC approval)
+- [ ] Re-run `-IncludeDisruptive` at a quiet moment (no update installing) to prove the stack-reset backup pruning (the harness now plants decoy backups and asserts they are removed)
+- [ ] Tiered stack reset that preserves the Windows Update history (clear `SoftwareDistribution\Download` first; full rename only if scans stay stale)
 - [ ] Test the PSWindowsUpdate backend against the real pinned module (every device run so far used the native COM backend)
 - [ ] Attribute policy values to domain GPO vs local policy (enables `FixPolicyKeys`; today policy-key findings are report-only)
 - [ ] Hotpatch enrollment detection (hotpatch findings stay skipped until then; the Autopatch quality policy has not reached the test device yet)

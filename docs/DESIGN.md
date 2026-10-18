@@ -77,7 +77,7 @@ Severity: Critical, Warning, Info. "Auto-fix" names the `Fix*` switch category; 
 | `ClearPause` | Removes the user-pause values under `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings` | Touch policy pauses or the system-owned status values |
 | `TriggerSync` | Starts the enrollment's `PushLaunch` task | - |
 | `CleanupDisk` | Deletes temp files older than 7 days; runs DISM `/StartComponentCleanup` (20-minute cap) | - |
-| `ResetStack` | Stops wuauserv, bits, cryptsvc; renames SoftwareDistribution and catroot2 to `.bak-<stamp>`; restarts the services | Run during an install (TiWorker) or with a restart pending (skipped) |
+| `ResetStack` | Stops wuauserv, bits, cryptsvc; renames SoftwareDistribution and catroot2 to `.bak-<stamp>`; restarts the services; then prunes older `.bak-<stamp>` backups (keeps the newest, exact-name match only). **Side effect: the Windows Update history list is reset** (installed updates stay installed) | Run during an install (TiWorker) or with a restart pending (skipped) |
 | `RegisterTask` | Re-registers the fallback task | - |
 
 Guardrails applied by `Invoke-WUORemediation` for every fix:

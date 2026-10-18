@@ -12,7 +12,9 @@
       - HKLM:\SOFTWARE\IntuneWUO (config), %ProgramFiles%\IntuneWUO, the IntuneWUO event log, a scheduled task
       - it starts the device's own MDM sync task once (a normal Intune sync)
     It never installs a Windows update. The disruptive actions (DISM component cleanup, update-stack reset)
-    only run with -IncludeDisruptive.
+    only run with -IncludeDisruptive. NOTE: the update-stack reset renames C:\Windows\SoftwareDistribution, which resets the
+    Windows Update HISTORY list (installed updates stay installed). The harness warns and asks you to type YES, or pass
+    -AcceptHistoryReset. Steps that did not exercise their subject are reported as SKIP, not PASS.
 
     Results: docs\validation\<host>-<date>.json and .md (no secrets are collected).
 .EXAMPLE
@@ -21,6 +23,7 @@
 [CmdletBinding()]
 param(
     [switch]$IncludeDisruptive,
+    [switch]$AcceptHistoryReset,
     [string]$ResultDir
 )
 
@@ -36,8 +39,17 @@ if (-not $isAdmin) {
     Write-Host 'Elevating (approve the UAC prompt)...'
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"")
     if ($IncludeDisruptive) { $argList += '-IncludeDisruptive' }
+    if ($AcceptHistoryReset) { $argList += '-AcceptHistoryReset' }
     $p = Start-Process powershell.exe -Verb RunAs -ArgumentList $argList -PassThru -Wait
     exit $p.ExitCode
+}
+
+if ($IncludeDisruptive -and -not $AcceptHistoryReset) {
+    Write-Host ''
+    Write-Host 'WARNING: -IncludeDisruptive resets the Windows Update stack. That renames C:\Windows\SoftwareDistribution, which also' -ForegroundColor Yellow
+    Write-Host 'RESETS THE UPDATE HISTORY shown in Settings > Windows Update > Update history (installed updates stay installed).' -ForegroundColor Yellow
+    Write-Host 'The harness deletes the renamed backup afterwards, so the old history is not recoverable.' -ForegroundColor Yellow
+    if ((Read-Host 'Type YES to continue') -ne 'YES') { Write-Host 'Cancelled.'; exit 2 }
 }
 
 # --- Harness plumbing ----------------------------------------------------------------------------------
@@ -54,16 +66,19 @@ $host.UI.RawUI.WindowTitle = 'Intune-WUO validation'
 
 function Step {
     param([string]$Name, [scriptblock]$Body)
-    $r = [ordered]@{ step = $Name; pass = $false; detail = '' }
+    $r = [ordered]@{ step = $Name; pass = $false; skipped = $false; detail = '' }
     try {
         $detail = & $Body
         $r.pass = $true
         $r.detail = ($detail | Out-String).Trim()
+        # A step that did not actually exercise its subject says so with a leading SKIPPED: it is not counted as a pass.
+        if ($r.detail -match '^SKIPPED') { $r.skipped = $true }
     }
     catch { $r.detail = $_.Exception.Message }
     $results.Add([pscustomobject]$r)
-    Write-Host ('[{0}] {1}{2}' -f $(if ($r.pass) { 'PASS' } else { 'FAIL' }), $Name, $(if (-not $r.pass) { " -> $($r.detail)" } else { '' })) `
-        -ForegroundColor $(if ($r.pass) { 'Green' } else { 'Red' })
+    $tag = if (-not $r.pass) { 'FAIL' } elseif ($r.skipped) { 'SKIP' } else { 'PASS' }
+    Write-Host ('[{0}] {1}{2}' -f $tag, $Name, $(if ($tag -ne 'PASS') { " -> $($r.detail)" } else { '' })) `
+        -ForegroundColor $(switch ($tag) { 'PASS' { 'Green' } 'SKIP' { 'Yellow' } default { 'Red' } })
 }
 function Assert([bool]$Condition, [string]$Message) { if (-not $Condition) { throw "Assertion failed: $Message" } }
 
@@ -132,6 +147,8 @@ if (Test-Path $uxKey) {
 $onBattery = [bool](Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Where-Object BatteryStatus -eq 1)
 $historyBefore = 0
 try { $historyBefore = (New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher().GetTotalHistoryCount() } catch { }
+# The Windows Update history can be empty or reset; the OS's own list of installed updates is a sturdier baseline.
+$hotfixBefore = @(Get-HotFix -ErrorAction SilentlyContinue | ForEach-Object HotFixID | Sort-Object -Unique)
 $mdmBefore = $null
 
 try {
@@ -360,7 +377,9 @@ try {
         $new = if ($after -gt $historyBefore) { @((New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher().QueryHistory(0, $after - $historyBefore) | ForEach-Object Title) } else { @() }
         $badNew = @($new | Where-Object { $_ -notmatch 'Defender|Security Intelligence|Malicious Software' })
         Assert ($badNew.Count -eq 0) ("unexpected new history: " + ($badNew -join '; '))
-        "history entries before=$historyBefore after=$after; new: $($new -join '; ')"
+        $hotfixNew = @(Get-HotFix -ErrorAction SilentlyContinue | ForEach-Object HotFixID | Sort-Object -Unique | Where-Object { $_ -notin $hotfixBefore })
+        Assert ($hotfixNew.Count -eq 0) ("new installed updates appeared: " + ($hotfixNew -join ', '))
+        "history entries before=$historyBefore after=$after (empty history makes that comparison weak); installed KBs before=$($hotfixBefore.Count), new=$($hotfixNew.Count); new history: $($new -join '; ')"
     }
 
     # ---------------------------------------------------------------- task self-heal
@@ -381,19 +400,30 @@ try {
             Import-Module (Join-Path $installDir 'Module\IntuneWUO.psd1') -Force
             & (Get-WUODefaultActions).CleanupDisk ([pscustomobject]@{ Id = 'DISK_LOW' })
         }
-        Step 'ResetStack renames SoftwareDistribution/catroot2 and restarts services' {
+        Step 'ResetStack renames SoftwareDistribution/catroot2, restarts services, and prunes older backups' {
             Import-Module (Join-Path $installDir 'Module\IntuneWUO.psd1') -Force
-            $msg = & (Get-WUODefaultActions).ResetStack ([pscustomobject]@{ Id = 'SCAN_STALE' })
-            if ("$msg" -like 'SKIP:*') { return "skipped by precondition: $msg" }
-            foreach ($s in 'wuauserv', 'bits', 'cryptsvc') { Assert ((Get-Service $s).Status -in 'Running', 'Stopped') "$s sane" }
-            Assert (Test-Path (Join-Path $env:windir 'SoftwareDistribution')) 'SoftwareDistribution recreated or present'
-            # The reset leaves renamed backups behind (hundreds of MB). Remove the ones THIS run made so the device is really restored.
-            if ("$msg" -match 'bak-(\d{14})') {
-                foreach ($d in @((Join-Path $env:windir "SoftwareDistribution.bak-$($Matches[1])"), (Join-Path $env:windir "System32\catroot2.bak-$($Matches[1])"))) {
-                    if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+            # Plant two empty decoy backups with an OLD stamp, so the pruning has something to remove. (Without them a normal run
+            # has no older backup, and the pruning would pass without ever being exercised.)
+            $decoys = @((Join-Path $env:windir 'SoftwareDistribution.bak-20200101000000'), (Join-Path $env:windir 'System32\catroot2.bak-20200101000000'))
+            foreach ($d in $decoys) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+            try {
+                $msg = & (Get-WUODefaultActions).ResetStack ([pscustomobject]@{ Id = 'SCAN_STALE' })
+                if ("$msg" -like 'SKIP:*') { return "SKIPPED: the stack reset did not run ($msg). Run the harness again when Windows is not installing updates (TiWorker idle)." }
+                foreach ($s in 'wuauserv', 'bits', 'cryptsvc') { Assert ((Get-Service $s).Status -in 'Running', 'Stopped') "$s sane" }
+                Assert (Test-Path (Join-Path $env:windir 'SoftwareDistribution')) 'SoftwareDistribution recreated or present'
+                foreach ($d in $decoys) { Assert (-not (Test-Path -LiteralPath $d)) "old backup was not pruned: $d" }
+                Assert ("$msg" -match 'pruned [1-9]') "the message should report pruning: $msg"
+                $msg
+            }
+            finally {
+                foreach ($d in $decoys) { if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue } }
+                # The reset leaves the backup it just made (hundreds of MB). Remove the ones THIS run made so the device is really restored.
+                if ("$msg" -match 'bak-(\d{14})') {
+                    foreach ($d in @((Join-Path $env:windir "SoftwareDistribution.bak-$($Matches[1])"), (Join-Path $env:windir "System32\catroot2.bak-$($Matches[1])"))) {
+                        if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+                    }
                 }
             }
-            $msg
         }
     }
 }
@@ -434,17 +464,19 @@ finally {
     if (-not (Test-Path $ResultDir)) { New-Item -ItemType Directory -Path $ResultDir -Force | Out-Null }
     $stamp = Get-Date -Format 'yyyy-MM-dd-HHmm'
     $base = Join-Path $ResultDir "$($env:COMPUTERNAME)-$stamp"
-    $pass = @($results | Where-Object pass).Count
+    $pass = @($results | Where-Object { $_.pass -and -not $_.skipped }).Count
+    $skippedCount = @($results | Where-Object skipped).Count
+    $failedCount = @($results | Where-Object { -not $_.pass }).Count
     $summary = [ordered]@{
         host = $env:COMPUTERNAME; when = (Get-Date).ToString('o'); build = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').CurrentBuild
         onBattery = $onBattery; includeDisruptive = [bool]$IncludeDisruptive
-        passed = $pass; failed = $results.Count - $pass; steps = $results
+        passed = $pass; skipped = $skippedCount; failed = $failedCount; steps = $results
     }
     $summary | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath "$base.json" -Encoding UTF8
-    $md = @("# Intune-WUO validation: $($env:COMPUTERNAME) ($stamp)", '', "Passed **$pass** of $($results.Count). On battery: $onBattery. Disruptive actions: $([bool]$IncludeDisruptive).", '', '| Result | Step | Detail |', '|---|---|---|')
-    foreach ($r in $results) { $md += ('| {0} | {1} | {2} |' -f $(if ($r.pass) { 'PASS' } else { '**FAIL**' }), $r.step, (($r.detail -replace '\|', '/' -replace '\r?\n', ' ') -replace '\s+', ' ').Trim()) }
+    $md = @("# Intune-WUO validation: $($env:COMPUTERNAME) ($stamp)", '', "Passed **$pass**, skipped **$skippedCount**, failed **$failedCount** (of $($results.Count) steps). On battery: $onBattery. Disruptive actions: $([bool]$IncludeDisruptive).", '', '| Result | Step | Detail |', '|---|---|---|')
+    foreach ($r in $results) { $md += ('| {0} | {1} | {2} |' -f $(if (-not $r.pass) { '**FAIL**' } elseif ($r.skipped) { 'SKIP' } else { 'PASS' }), $r.step, (($r.detail -replace '\|', '/' -replace '\r?\n', ' ') -replace '\s+', ' ').Trim()) }
     $md | Set-Content -LiteralPath "$base.md" -Encoding UTF8
     Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "`nPassed $pass of $($results.Count). Results: $base.md" -ForegroundColor Cyan
+    Write-Host "`nPassed $pass, skipped $skippedCount, failed $failedCount (of $($results.Count)). Results: $base.md" -ForegroundColor $(if ($failedCount -gt 0) { 'Red' } elseif ($skippedCount -gt 0) { 'Yellow' } else { 'Cyan' })
     Start-Sleep -Seconds 20   # leave the elevated window readable for a moment
 }

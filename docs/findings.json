@@ -159,7 +159,7 @@
       "autoFix": "Services",
       "title": "No successful Windows Update scan within ScanStaleDays",
       "cause": "The Windows Update stack is probably broken or blocked.",
-      "toolAction": "Resets the update components (renames SoftwareDistribution and catroot2), at most once per ResetCooldownDays and never during an install or with a restart pending.",
+      "toolAction": "Resets the update components (renames SoftwareDistribution and catroot2), at most once per ResetCooldownDays and never during an install or with a restart pending. SIDE EFFECT: this also resets the Windows Update history list shown in Settings (installed updates stay installed). Only the newest backup folder is kept.",
       "adminAction": "If scans still fail after a reset, check proxy/TLS inspection and WSUS leftovers."
     },
     {
