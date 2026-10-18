@@ -176,6 +176,8 @@ Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 .\tools\Invoke-WUOGraphRequests.ps1 -RequestsFile .\requests.json
 ```
 
+If Windows says *running scripts is disabled on this system*, allow scripts for that window only with `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` (or start it with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Invoke-WUOGraphRequests.ps1 -RequestsFile .\requests.json`). `-RequestsFile` is required.
+
 The executor shows each request with script contents summarised (never dumped), substitutes ids returned by earlier responses, skips requests that have no groups yet, stops on the first error or the first 'no', and writes a log of the ids it created. Because you sign in as yourself, Intune's audit log records **you**, and Conditional Access, MFA and PIM apply as usual.
 
 ### Permissions (least privilege)
@@ -251,6 +253,7 @@ Also exposed: resources `wuo://docs/<name>` for the documents, and prompts `depl
 | Client says the server failed to start | Run `npx -y github:bmrepository/Intune-WUOP` in a terminal. Needs Node.js 22+ and network access to GitHub and npm the first time. |
 | `npx` not found (Windows GUI apps) | Use `"command": "cmd", "args": ["/c", "npx", "-y", "github:bmrepository/Intune-WUOP"]`. |
 | Corporate proxy blocks GitHub or npm | `git clone` the repository, run `npm install`, and start `node mcp/server.mjs`. |
+| "Running scripts is disabled on this system" when running a `.ps1` | Windows' default execution policy. Use `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` (this window only) or `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <script>`. |
 | Tools list is empty | Restart the client; check its MCP log. |
 | Documents not found | The server reads the local clone first, then GitHub. Set `WUO_SOURCE=github` to force GitHub. |
 | HTTP: 401 | Send `Authorization: Bearer <WUO_MCP_TOKEN>`. |

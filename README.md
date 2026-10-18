@@ -708,6 +708,16 @@ npm test
 .\tools\Invoke-WUOValidation.ps1 -IncludeDisruptive # also runs DISM component cleanup and the update-stack reset
 ```
 
+**"Running scripts is disabled on this system"?** That is Windows' default execution policy blocking unsigned scripts, and it applies to every `.ps1` in this repository. Do not weaken the machine-wide policy. Allow it for the current window only (nothing is changed on disk), then run the script as above:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+# or, in one line, without changing any policy:
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\Invoke-WUOValidation.ps1
+```
+
+If the files came from a ZIP download, also run `Get-ChildItem -Recurse .\ | Unblock-File` once. The scripts Intune runs are not affected: Intune runs Remediations and the fallback task with its own policy settings.
+
 Results are written to `docs\validation\<host>-<timestamp>.md` and `.json`. Temporary changes it makes: the BITS start type (set to Disabled, then repaired by the tool), a synthetic user-pause value (then removed by the tool), `HKLM\SOFTWARE\IntuneWUO`, `%ProgramFiles%\IntuneWUO`, the `IntuneWUO` event log and one scheduled task. It also starts the device's own MDM sync task once, which is a normal Intune sync.
 
 ---
