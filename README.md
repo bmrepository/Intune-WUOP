@@ -3,7 +3,7 @@
 **A self-healing layer for Windows Update on Intune-managed devices.** Intune-WUO works alongside [Windows Autopatch](https://learn.microsoft.com/windows/deployment/windows-autopatch/overview/windows-autopatch-overview). It finds the device-side problems that stop Autopatch-approved updates from installing, fixes the safe ones automatically, and, as a last resort, installs the overdue approved update itself. Results go back to Intune and to local logs.
 
 > [!IMPORTANT]
-> **Project status: pre-release (v0.2), validated on one real device.** All components are implemented and covered by 100 Pester and 39 Node tests. The end-to-end harness (`tools/Invoke-WUOValidation.ps1`) has been run as administrator on a Windows 11 25H2 device enrolled in Autopatch: **25 of 27 steps passed** (install, ACLs, modes, service repair, repeat suppression, pause fix, real MDM sync, fallback guardrails, uninstall, and a clean restore). The two failures were real bugs, now fixed and covered by regression tests; a re-run to confirm them is pending. See [`docs/validation/`](docs/validation/). Not yet proven: a real update install by the fallback, the PSWindowsUpdate backend against the real module, and the generated Graph requests in a tenant. Treat it as pilot-only and start every group in `ReportOnly`.
+> **Project status: pre-release (v0.2), validated on one real device.** All components are implemented and covered by 103 Pester and 39 Node tests. The end-to-end harness (`tools/Invoke-WUOValidation.ps1`) has been run as administrator on a Windows 11 25H2 device enrolled in Autopatch: **27 of 27 steps passed**, and **29 of 29 with the disruptive actions** (DISM cleanup and the update-stack reset). That covers install and ACLs, every mode, service repair, repeat suppression, the pause fix, a real MDM sync, the fallback scan and guardrails, Task Scheduler launching the fallback, task self-heal, uninstall and a clean restore. The first run (25 of 27) found two real bugs, now fixed; see [`docs/validation/`](docs/validation/). **Not yet proven:** a real update install by the fallback, the PSWindowsUpdate backend against the real module, hotpatch enrollment (the Autopatch quality policy had not reached the test device), and the generated Graph requests in a tenant. Treat it as pilot-only and start every group in `ReportOnly`. Anyone continuing development should read [HANDOFF.md](HANDOFF.md).
 
 ---
 
@@ -731,11 +731,11 @@ Results are written to `docs\validation\<host>-<timestamp>.md` and `.json`. Temp
 - [x] Fixes (services, user pauses, stale sync, low disk, update-stack reset, task re-registration), each behind its own switch
 - [x] Fallback installer, scheduled task definition and PSWindowsUpdate permitted-calls wrapper
 - [x] Build, signing and packaging script
-- [x] First end-to-end run on a real device: 25 of 27 steps passed; the 2 failures (fallback task launched with no arguments; task self-heal state type) are fixed with regression tests
-- [ ] Re-run the validation harness to confirm those two fixes (needs one UAC approval), then run it with `-IncludeDisruptive`
-- [ ] Test the PSWindowsUpdate backend against the real pinned module
+- [x] End-to-end validation on a real device: 25 of 27 first (2 bugs found and fixed with regression tests), then 27 of 27, then 29 of 29 including DISM cleanup and the update-stack reset
+- [ ] Re-run the harness once more to confirm the new stack-reset backup pruning leaves no `*.bak-*` folders (needs one UAC approval)
+- [ ] Test the PSWindowsUpdate backend against the real pinned module (every device run so far used the native COM backend)
 - [ ] Attribute policy values to domain GPO vs local policy (enables `FixPolicyKeys`; today policy-key findings are report-only)
-- [ ] Hotpatch enrollment detection (hotpatch findings stay skipped until then)
+- [ ] Hotpatch enrollment detection (hotpatch findings stay skipped until then; the Autopatch quality policy has not reached the test device yet)
 - [x] Read the Autopatch Client Broker readiness result, ring and timestamp
 - [x] MCP server, skill, Claude Code plugin and agent guide (offline, read-only; tenant writes stay with the agent's own tool after human approval)
 - [ ] Verify the generated Graph requests end to end in a test tenant (payloads follow Microsoft's published schema but have not been sent to a tenant)

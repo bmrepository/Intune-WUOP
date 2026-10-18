@@ -387,6 +387,12 @@ try {
             if ("$msg" -like 'SKIP:*') { return "skipped by precondition: $msg" }
             foreach ($s in 'wuauserv', 'bits', 'cryptsvc') { Assert ((Get-Service $s).Status -in 'Running', 'Stopped') "$s sane" }
             Assert (Test-Path (Join-Path $env:windir 'SoftwareDistribution')) 'SoftwareDistribution recreated or present'
+            # The reset leaves renamed backups behind (hundreds of MB). Remove the ones THIS run made so the device is really restored.
+            if ("$msg" -match 'bak-(\d{14})') {
+                foreach ($d in @((Join-Path $env:windir "SoftwareDistribution.bak-$($Matches[1])"), (Join-Path $env:windir "System32\catroot2.bak-$($Matches[1])"))) {
+                    if (Test-Path -LiteralPath $d) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+                }
+            }
             $msg
         }
     }

@@ -101,6 +101,43 @@ Describe 'Invoke-WUORemediation' {
     }
 }
 
+Describe 'Remove-WUOOldStackBackups (the stack reset must not leave hundreds of MB behind on every run)' {
+    BeforeEach {
+        $script:win = Join-Path $TestDrive 'Windows'
+        $script:sys = Join-Path $script:win 'System32'
+        New-Item -ItemType Directory -Path $script:sys -Force | Out-Null
+        foreach ($d in 'SoftwareDistribution.bak-20260101000000', 'SoftwareDistribution.bak-20260201000000', 'SoftwareDistribution.bak-20260301000000',
+                       'SoftwareDistribution', 'SoftwareDistribution.bak-notadate', 'SoftwareDistribution.bak-2026030100000', 'Other.bak-20260101000000', 'xSoftwareDistribution.bak-20260101000000') {
+            New-Item -ItemType Directory -Path (Join-Path $script:win $d) -Force | Out-Null
+        }
+        foreach ($d in 'catroot2.bak-20260101000000', 'catroot2.bak-20260301000000', 'catroot2') { New-Item -ItemType Directory -Path (Join-Path $script:sys $d) -Force | Out-Null }
+    }
+
+    It 'keeps only the newest backup of each kind' {
+        $removed = Remove-WUOOldStackBackups -Parent @($script:win, $script:sys)
+        @($removed).Count | Should -Be 3
+        Test-Path (Join-Path $script:win 'SoftwareDistribution.bak-20260301000000') | Should -BeTrue
+        Test-Path (Join-Path $script:win 'SoftwareDistribution.bak-20260201000000') | Should -BeFalse
+        Test-Path (Join-Path $script:win 'SoftwareDistribution.bak-20260101000000') | Should -BeFalse
+        Test-Path (Join-Path $script:sys 'catroot2.bak-20260301000000') | Should -BeTrue
+        Test-Path (Join-Path $script:sys 'catroot2.bak-20260101000000') | Should -BeFalse
+    }
+    It 'never touches the live folders or anything whose name does not match exactly' {
+        $null = Remove-WUOOldStackBackups -Parent @($script:win, $script:sys)
+        foreach ($keep in 'SoftwareDistribution', 'SoftwareDistribution.bak-notadate', 'SoftwareDistribution.bak-2026030100000', 'Other.bak-20260101000000', 'xSoftwareDistribution.bak-20260101000000') {
+            Test-Path (Join-Path $script:win $keep) | Should -BeTrue -Because $keep
+        }
+        Test-Path (Join-Path $script:sys 'catroot2') | Should -BeTrue
+    }
+    It 'is a no-op for a missing parent and honours -Keep' {
+        @(Remove-WUOOldStackBackups -Parent @((Join-Path $TestDrive 'nope'))).Count | Should -Be 0
+        $removed = Remove-WUOOldStackBackups -Parent @($script:win) -Keep 2
+        @($removed).Count | Should -Be 1
+        Test-Path (Join-Path $script:win 'SoftwareDistribution.bak-20260101000000') | Should -BeFalse
+        Test-Path (Join-Path $script:win 'SoftwareDistribution.bak-20260201000000') | Should -BeTrue
+    }
+}
+
 Describe 'Test-WUOFixEnabled and Get-WUOFixActionName' {
     It 'maps finding ids to actions' {
         Get-WUOFixActionName (New-Finding 'SVC_DISABLED_wuauserv') | Should -Be 'RepairService'

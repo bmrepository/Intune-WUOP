@@ -27,6 +27,34 @@ function Get-WUOFixActionName {
     }
 }
 
+function Remove-WUOOldStackBackups {
+    <#
+    .SYNOPSIS
+        Keeps only the newest SoftwareDistribution.bak-<stamp> / catroot2.bak-<stamp> backup in each parent folder and
+        deletes the older ones, so repeated stack resets cannot fill the disk. Only folders whose names match
+        exactly <base>.bak-<14 digits> are ever touched. Returns the paths it removed.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string[]]$Parent,
+        [string[]]$BaseName = @('SoftwareDistribution', 'catroot2'),
+        [int]$Keep = 1
+    )
+    $removed = New-Object System.Collections.Generic.List[string]
+    foreach ($p in $Parent) {
+        if (-not (Test-Path -LiteralPath $p)) { continue }
+        foreach ($b in $BaseName) {
+            $pattern = '^' + [regex]::Escape($b) + '\.bak-\d{14}$'
+            $dirs = @(Get-ChildItem -LiteralPath $p -Directory -Force -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match $pattern } | Sort-Object Name -Descending)
+            foreach ($d in ($dirs | Select-Object -Skip $Keep)) {
+                try { Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction Stop; $removed.Add($d.FullName) }
+                catch { }   # best effort: a locked old backup is not worth failing the reset
+            }
+        }
+    }
+    $removed.ToArray()
+}
 function Get-WUODefaultActions {
     <#
     .SYNOPSIS
@@ -104,7 +132,9 @@ function Get-WUODefaultActions {
             finally {
                 foreach ($s in $services) { Start-Service -Name $s -ErrorAction SilentlyContinue }
             }
-            "Reset Windows Update components (backups suffixed .bak-$stamp)"
+            # Keep only the backup just made; older ones would otherwise accumulate (hundreds of MB per reset).
+            $pruned = @(Remove-WUOOldStackBackups -Parent @($env:windir, (Join-Path $env:windir 'System32'))).Count
+            "Reset Windows Update components (backups suffixed .bak-$stamp; pruned $pruned older backup folder(s))"
         }
     }
 }
