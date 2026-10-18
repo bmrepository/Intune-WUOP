@@ -91,7 +91,8 @@ function Get-WUOFinding {
 
     $scan = if ($State.Wua) { $State.Wua['LastSearchSuccess'] } else { $null }
     if ($scan -and $scan.Year -gt 2000 -and ($Now - $scan).TotalDays -gt $Config.ScanStaleDays) {
-        $findings.Add((New-WUOFinding -Id 'SCAN_STALE' -Severity Warning `
+        # AutoFix Services covers the update-stack reset (rate-limited by ResetCooldownDays).
+        $findings.Add((New-WUOFinding -Id 'SCAN_STALE' -Severity Warning -AutoFix Services `
             -Message "No successful Windows Update scan in $($Config.ScanStaleDays) days."))
     }
 
@@ -108,6 +109,13 @@ function Get-WUOFinding {
     if ($State.ConfigMgr -and $State.ConfigMgr['Present']) {
         $findings.Add((New-WUOFinding -Id 'CONFIGMGR_PRESENT' -Severity Info `
             -Message 'ConfigMgr client present; confirm the Windows Update workload is on Intune.'))
+    }
+
+    if ($Config.Mode -eq 'RemediateAndFallback' -and $State.FallbackTask) {
+        if (-not $State.FallbackTask['Present'] -or -not $State.FallbackTask['Enabled']) {
+            $findings.Add((New-WUOFinding -Id 'FALLBACK_TASK_MISSING' -Severity Warning -AutoFix Services `
+                -Message 'The fallback scheduled task is missing or disabled.'))
+        }
     }
 
     $hp = $State.Hotpatch

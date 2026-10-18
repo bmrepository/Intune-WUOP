@@ -114,6 +114,9 @@ function Get-WUOState {
         AutopatchDrc = Test-Path (Join-Path $env:ProgramData 'Microsoft\CMDExtension\Plugins\DeviceReadinessPlugin\Logs\DRCResults.json.log')
     }
 
+    try { $state.FallbackTask = Get-WUOFallbackTaskStatus }
+    catch { $errors['FallbackTask'] = $_.Exception.Message; $state.FallbackTask = $null }
+
     # $null means "not determined": hotpatch checks are skipped until enrollment evidence is read (see design doc).
     $state.Hotpatch = @{
         Enrolled           = $null

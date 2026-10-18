@@ -3,7 +3,7 @@
 **A self-healing layer for Windows Update on Intune-managed devices.** Intune-WUO works alongside [Windows Autopatch](https://learn.microsoft.com/windows/deployment/windows-autopatch/overview/windows-autopatch-overview). It finds the device-side problems that stop Autopatch-approved updates from installing, fixes the safe ones automatically, and, as a last resort, installs the overdue approved update itself. Results go back to Intune and to local logs.
 
 > [!IMPORTANT]
-> **Project status: design phase.** The requirements are agreed and the first device discovery is done. The components, switches and deployment steps below describe the **target design**. No scripts or packages exist yet. See [Roadmap](#roadmap).
+> **Project status: pre-release (v0.2).** All components are implemented and covered by 69 Pester tests, and the read-only paths have been run on one real device. **The fix actions, the scheduled task and the install paths have not yet been exercised on a real device**, and the PSWindowsUpdate backend has not been tested against the real module. Treat it as pilot-only until the [validation steps](#roadmap) are done. Start every group in `ReportOnly`.
 
 ---
 
@@ -186,10 +186,10 @@ flowchart TD
 
 | Area | Check | Default action in `Remediate` mode |
 |---|---|---|
-| **Policy conflicts** | The values Autopatch flags (`DoNotConnectToWindowsUpdateInternetLocations`, `DisableWindowsUpdateAccess`, `AU\NoAutoUpdate`), compared between PolicyManager and the GPO keys, with each value's source identified | **Fix** if the value comes from local policy or a stray write. **Report** if it comes from domain GPO or ConfigMgr |
-| **WSUS remnants** | `UseWUServer` / `WUServer` / `UpdateServiceUrl`, the `SetPolicyDrivenUpdateSourceFor*` values, DualScan | Same rule as above |
+| **Policy conflicts** | The values Autopatch flags (`DoNotConnectToWindowsUpdateInternetLocations`, `DisableWindowsUpdateAccess`, `AU\NoAutoUpdate`), compared between PolicyManager and the GPO keys, with each value's source identified | **Report** only for now: the source (domain GPO vs local policy) is not attributed yet, so nothing is removed automatically |
+| **WSUS remnants** | `UseWUServer` / `WUServer` / `UpdateServiceUrl`, the `SetPolicyDrivenUpdateSourceFor*` values, DualScan | **Report** |
 | **ConfigMgr** | Co-management workloads for Windows Update and Device configuration, and the Software Updates client agent | **Report** only |
-| **Pauses** | User pause, expired policy pause | **Fix**. A pause Intune is actively setting is never touched |
+| **Pauses** | User pause (not set by policy) | **Fix**. A pause Intune is actively setting is never touched |
 | **Services** | `wuauserv`, `UsoSvc`, `BITS`, `WaaSMedicSvc`, `wlidsvc`, `DiagTrack` compared with their *default* start types (trigger-start services are often stopped, and that's healthy) | **Fix** |
 | **Update stack** | Scans failing again and again | **Fix**: reset components, at most once per `ResetCooldownDays` |
 | **Diagnostic data** | At least *Required* (needed by Autopatch) | **Report** |
@@ -198,7 +198,7 @@ flowchart TD
 | **Restart** | Restart pending past its deadline. `PendingFileRenameOperations` alone doesn't count, because it's often set on healthy devices | **Report** |
 | **Compliance** | On the latest approved LCU, or the current hotpatch on top of the current baseline | **Report**, and feeds the fallback |
 | **Environment** | Language mode, WDAC/App Control, AppLocker, WinHTTP proxy, endpoint reachability | **Report** as capability flags. Also decides which update backend to use |
-| **Autopatch readiness** | Reads `DRCResults.json.log` if the Autopatch Client Broker is installed | Merged into the findings |
+| **Autopatch readiness** | Planned: read `DRCResults.json.log` when the Autopatch Client Broker is installed | Not implemented yet |
 
 ---
 
@@ -243,6 +243,8 @@ Everything is controlled centrally through registry values under **`HKLM\SOFTWAR
 | `FallbackMaxAttempts` | DWORD | `3` | Failed attempts per update before the fallback stops trying and reports |
 | `MinFreeDiskGB` | DWORD | `20` | Disk threshold for the cleanup fix and the fallback guardrail |
 | `ResetCooldownDays` | DWORD | `7` | Minimum days between update-stack resets |
+| `FixMaxRepeats` | DWORD | `3` | If the same fix is needed this many times within 7 days, something else keeps undoing it: the tool stops re-applying it and reports `Suppressed` |
+| `ScanStaleDays` | DWORD | `7` | Days without a successful Windows Update scan before `SCAN_STALE` is raised |
 | `SyncStaleHours` | DWORD | `24` | MDM sync age that triggers a sync |
 | `FixServices` | DWORD 0/1 | `1` | Allow service fixes |
 | `FixPauses` | DWORD 0/1 | `1` | Allow pause fixes |
@@ -255,18 +257,10 @@ Everything is controlled centrally through registry values under **`HKLM\SOFTWAR
 
 The supported way is an **Intune assignment**, never manual edits on devices:
 
-1. In **Devices › Scripts and remediations**, create (or edit) the **IntuneWUO-Config** script package. Its remediation script sets the values; its detection script checks them. A minimal example:
-
-   ```powershell
-   # IntuneWUO-Config remediation: example for a Remediate ring
-   $key = 'HKLM:\SOFTWARE\IntuneWUO'
-   New-Item -Path $key -Force | Out-Null
-   Set-ItemProperty -Path $key -Name Mode -Value 'Remediate' -Type String
-   Set-ItemProperty -Path $key -Name FallbackGraceDays -Value 3 -Type DWord
-   ```
-
-2. Create **one config package per mode**, for example `IntuneWUO-Config-ReportOnly`, `-Remediate` and `-RemediateAndFallback`, and assign each to the matching Entra group. Each device must receive **exactly one** config package.
-3. **Kill switch:** assign `IntuneWUO-Config-Off` to the affected group (or to all devices) and run it on demand with **Run remediation** for an urgent stop. Every component checks `Mode` at the start of each run.
+1. The build produces one ready-made config package per mode under `out\Config\<Mode>\` (`Detect.ps1` and `Remediate.ps1`). The remediation script writes the mode to `HKLM\SOFTWARE\IntuneWUO`; the detection script checks it, so a device that drifts is corrected on the next run.
+2. In **Devices › Scripts and remediations**, create one package per mode, for example `IntuneWUO-Config-ReportOnly`, `-Remediate`, `-RemediateAndFallback` and `-Off`, and assign each to the matching Entra group. Each device must receive **exactly one** config package.
+3. To change other settings (see the table above), edit the `__SETTINGS__` block that `build\Build-IntuneWUO.ps1` stamps into the templates in `src\Config\`, rebuild, and update the package. Any number setting is DWORD; the build writes whole numbers as DWORD.
+4. **Kill switch:** assign `IntuneWUO-Config-Off` to the affected group (or to all devices) and run it on demand with **Run remediation** for an urgent stop. Every component checks `Mode` at the start of each run.
 
 To check the current mode on a single device:
 
@@ -308,15 +302,23 @@ Get-ItemProperty -Path 'HKLM:\SOFTWARE\IntuneWUO'
 ### Step 2: Build the package
 
 ```powershell
-# From the repo root (planned build script)
-.\build\Build-IntuneWUO.ps1 -Version 1.0.0 -SignWith Cert:\CurrentUser\My\<thumbprint>
+# From the repo root. Only -Version is required.
+.\build\Build-IntuneWUO.ps1 -Version 1.0.0 `
+    -PSWindowsUpdatePath C:\pinned\PSWindowsUpdate\2.2.1.5 `
+    -CertThumbprint <code-signing-cert-thumbprint> `
+    -IntuneWinAppUtil C:\tools\IntuneWinAppUtil.exe
 ```
 
-The build:
-- copies the engine and the pinned PSWindowsUpdate 2.2.1.5
-- writes the SHA-256 hash manifest
-- signs the scripts
-- produces `out\IntuneWUO.intunewin` plus the Remediation and config scripts
+Nothing is downloaded by the build. You supply a pinned copy of PSWindowsUpdate 2.2.1.5 (for example saved once with `Save-Module PSWindowsUpdate -RequiredVersion 2.2.1.5`) and, optionally, the signing certificate and Microsoft's `IntuneWinAppUtil.exe`.
+
+The build writes to `out\`:
+- `Win32\`: the app contents (module, fallback script, install/uninstall scripts, `version.txt`, and `ThirdParty\` with a SHA-256 `manifest.json` if you passed `-PSWindowsUpdatePath`)
+- `Win32-Detect\Detect-IntuneWUOApp.ps1`: the app's detection rule, stamped with the version
+- `Remediation\`: `Detect-WUO.ps1` and `Remediate-WUO.ps1`
+- `Config\<Mode>\`: the four config packages
+- `IntuneWUO.intunewin`: only when `-IntuneWinAppUtil` is given
+
+Without `-PSWindowsUpdatePath` the package uses the native Windows Update COM backend only, which is fully supported.
 
 ### Step 3: Deploy the Win32 app (engine and scheduled task)
 
@@ -384,15 +386,19 @@ In Intune, open the Remediation's **Device status** and add the *Pre-remediation
 | **`…\IntuneManagementExtension\Logs\IntuneWUO\`** | `IntuneWUO.jsonl` (machine-readable) and `IntuneWUO.log` (CMTrace), rotated by size. Collected by *Collect diagnostics* |
 | **Event Log `IntuneWUO`** | Fixed event IDs per finding and action, for Event Viewer, Defender XDR or SIEM forwarding |
 
-**Event ID ranges** *(proposed)*:
+**Event IDs:**
 
-| Range | Meaning |
+| ID | Meaning |
 |---|---|
-| `1000–1099` | Run lifecycle |
-| `2000–2999` | Findings |
-| `3000–3999` | Fixes applied or skipped |
-| `4000–4999` | Fallback install |
-| `9000+` | Errors |
+| `1001` / `1002` | Detection run complete / skipped because Mode is `Off` |
+| `2000–2099` | A finding. Each known finding has a fixed id (see [docs/DESIGN.md](docs/DESIGN.md)); unknown ones use `2099` |
+| `3000–3099` | The matching fix was applied (finding id + 1000) |
+| `3500–3599` | The matching fix failed (finding id + 1500) |
+| `4001` | Fallback installed updates |
+| `4002` | Fallback install failed |
+| `4003` | Fallback skipped (mode or a guardrail) |
+| `4004` | Nothing overdue; the native path is healthy |
+| `9000` | Error |
 
 ### Troubleshooting
 
@@ -424,19 +430,26 @@ In Intune, open the Remediation's **Device status** and add the *Pre-remediation
 
 ## Repository layout
 
-*(planned)*
-
 ```text
 src/
-  IntuneWUO/            Engine module (policy reader, checks, fixes, engine wrapper, logging)
-  Remediation/          Detect-WUO.ps1, Remediate-WUO.ps1, IntuneWUO-Config samples
-  Win32/                Install/Uninstall scripts, scheduled task definition, detection script
-  ThirdParty/           Pinned PSWindowsUpdate 2.2.1.5 + SHA-256 manifest
-tests/                  Pester 5 tests (mocked registry, CIM, services and engine backend)
-build/                  Build, signing and .intunewin packaging
+  IntuneWUO/            Engine module: config, state, findings, fixes, fallback, engine wrapper, task, logging
+  Remediation/          Detect-WUO.ps1, Remediate-WUO.ps1
+  Config/               Templates for the per-mode config packages
+  Win32/                Invoke-WUOFallback.ps1 (task entry point), Install/Uninstall scripts, app detection rule
+tests/                  Pester tests (mocked registry, services, backend and update API)
+build/                  Build-IntuneWUO.ps1: staging, PSWindowsUpdate pinning, signing, .intunewin
 docs/
-  DESIGN.md             Detailed design (finding catalogue, schemas, event IDs)
+  DESIGN.md             Design: finding catalogue, guardrails, schemas, event IDs
   discovery/            Read-only discovery snapshots from test devices
+```
+
+On a device the Win32 app installs to `%ProgramFiles%\IntuneWUO\` (`Module\`, `ThirdParty\`, `Invoke-WUOFallback.ps1`, `version.txt`).
+
+### Running the tests
+
+```powershell
+Install-Module Pester -Scope CurrentUser   # Pester 5 or later
+Invoke-Pester -Path .\tests -Output Detailed
 ```
 
 ---
@@ -445,11 +458,16 @@ docs/
 
 - [x] Requirements agreed (role, delivery, Autopatch setup, legacy sources, fix scope, restarts, control, engine, schedule, logging, success measures, rollout, hotpatch)
 - [x] Read-only discovery on the first test device (Windows 11 25H2, build 26100)
-- [ ] `docs/DESIGN.md`: detailed design for approval
-- [ ] Engine and ReportOnly paths, with Pester tests
-- [ ] Fixes, each behind its own switch
-- [ ] Fallback installer and scheduled task
-- [ ] Build, signing and packaging
+- [x] `docs/DESIGN.md`
+- [x] Engine and ReportOnly paths, with Pester tests
+- [x] Fixes (services, user pauses, stale sync, low disk, update-stack reset, task re-registration), each behind its own switch
+- [x] Fallback installer, scheduled task definition and PSWindowsUpdate permitted-calls wrapper
+- [x] Build, signing and packaging script
+- [ ] Run the fixes, the task registration and an install end to end on a **disposable test device**
+- [ ] Test the PSWindowsUpdate backend against the real pinned module
+- [ ] Attribute policy values to domain GPO vs local policy (enables `FixPolicyKeys`; today policy-key findings are report-only)
+- [ ] Hotpatch enrollment detection (hotpatch findings stay skipped until then)
+- [ ] Optionally read the Autopatch readiness file (`DRCResults.json.log`) once the Client Broker is deployed
 - [ ] Validation on a 24H2/25H2 device (hybrid-joined or co-managed), then the pilot
 
 ## License

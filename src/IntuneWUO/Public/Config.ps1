@@ -17,6 +17,7 @@ function ConvertTo-WUOConfig {
         ResetCooldownDays   = 7
         SyncStaleHours      = 24
         ScanStaleDays       = 7
+        FixMaxRepeats       = 3
         FixServices         = $true
         FixPauses           = $true
         FixPolicyKeys       = $true
@@ -39,6 +40,7 @@ function ConvertTo-WUOConfig {
         ResetCooldownDays   = @(1, 90)
         SyncStaleHours      = @(1, 720)
         ScanStaleDays       = @(1, 90)
+        FixMaxRepeats       = @(1, 10)
     }
     foreach ($name in $intRules.Keys) {
         if (-not $Raw.ContainsKey($name)) { continue }
