@@ -1,0 +1,256 @@
+{
+  "schema": 1,
+  "description": "Machine-readable catalogue of every Intune-WUO finding id. Source of truth for the MCP server and the AI-agent skill. Kept in sync with src/IntuneWUO/Public/Events.ps1 by a Pester test.",
+  "autoFixCategories": {
+    "None": "Report only. Intune-WUO never changes this.",
+    "Services": "Controlled by the FixServices switch (service repair, update-stack reset, task re-registration).",
+    "Pauses": "Controlled by the FixPauses switch.",
+    "SyncAndCleanup": "Controlled by the FixSyncAndCleanup switch.",
+    "PolicyKeys": "Controlled by the FixPolicyKeys switch. Not active yet: policy values are not attributed to domain GPO vs local policy, so nothing is removed automatically."
+  },
+  "findings": [
+    {
+      "id": "POLICY_CONFLICT_DONOTCONNECT",
+      "severity": "Critical",
+      "autoFix": "None",
+      "title": "DoNotConnectToWindowsUpdateInternetLocations is set",
+      "cause": "A Group Policy, local policy or stray registry write under HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate blocks the device from reaching Windows Update. Windows Autopatch flags this value.",
+      "toolAction": "Reports only.",
+      "adminAction": "Find the source (gpresult /h, RSOP, ConfigMgr client settings, imaging scripts) and remove it there. On Windows 11 24H2 builds with KB5101684 (26100.8973 and later) deploy the Intune policy Update/IgnoreWindowsUpdateGroupPolicies = 1 so Windows ignores Windows Update Group Policy."
+    },
+    {
+      "id": "POLICY_CONFLICT_DISABLEWUACCESS",
+      "severity": "Critical",
+      "autoFix": "None",
+      "title": "DisableWindowsUpdateAccess is set",
+      "cause": "Policy removes access to Windows Update features. Windows Autopatch flags this value.",
+      "toolAction": "Reports only.",
+      "adminAction": "Remove the source policy, or deploy IgnoreWindowsUpdateGroupPolicies = 1 where supported."
+    },
+    {
+      "id": "POLICY_CONFLICT_NOAUTOUPDATE",
+      "severity": "Critical",
+      "autoFix": "None",
+      "title": "AU\\NoAutoUpdate is set",
+      "cause": "Automatic Updates is switched off by policy. Windows Autopatch flags this value.",
+      "toolAction": "Reports only.",
+      "adminAction": "Remove the source policy, or deploy IgnoreWindowsUpdateGroupPolicies = 1 where supported."
+    },
+    {
+      "id": "WSUS_REMNANT",
+      "severity": "Warning",
+      "autoFix": "None",
+      "title": "An intranet update service (WSUS) is configured",
+      "cause": "UseWUServer, WUServer or UpdateServiceUrl is present, so the device may scan a WSUS server instead of Windows Update.",
+      "toolAction": "Reports only.",
+      "adminAction": "Remove the WSUS configuration at its source, or set the SetPolicyDrivenUpdateSourceFor* policies to 0 (Windows Update). The default for those policies is 1 (WSUS)."
+    },
+    {
+      "id": "DUALSCAN_CONFLICT",
+      "severity": "Critical",
+      "autoFix": "None",
+      "title": "WSUS configured and DisableDualScan is on",
+      "cause": "With a WSUS URL, DisableDualScan stops the device scanning Windows Update, which blocks Autopatch-managed updates.",
+      "toolAction": "Reports only.",
+      "adminAction": "Do not configure UpdateServiceUrl/UpdateServiceUrlAlternate, or set SetPolicyDrivenUpdateSourceFor<type> to 0 for the relevant update types."
+    },
+    {
+      "id": "SVC_DISABLED_wuauserv",
+      "severity": "Critical",
+      "autoFix": "Services",
+      "title": "Windows Update service (wuauserv) is disabled",
+      "cause": "The service start type is Disabled (a stopped trigger-start service is healthy and is not flagged).",
+      "toolAction": "Sets the start type back to Manual (its default) when Mode is Remediate or RemediateAndFallback and FixServices = 1.",
+      "adminAction": "If it keeps being disabled (the tool suppresses the fix after FixMaxRepeats), find what disables it: security baselines, hardening scripts, third-party tools."
+    },
+    {
+      "id": "SVC_DISABLED_UsoSvc",
+      "severity": "Critical",
+      "autoFix": "Services",
+      "title": "Update Orchestrator service (UsoSvc) is disabled",
+      "cause": "The service start type is Disabled.",
+      "toolAction": "Sets the start type to Automatic and starts it.",
+      "adminAction": "Find what disables it (security baselines, hardening scripts)."
+    },
+    {
+      "id": "SVC_DISABLED_BITS",
+      "severity": "Warning",
+      "autoFix": "Services",
+      "title": "Background Intelligent Transfer Service (BITS) is disabled",
+      "cause": "The service start type is Disabled.",
+      "toolAction": "Sets the start type to Manual.",
+      "adminAction": "Find what disables it."
+    },
+    {
+      "id": "SVC_DISABLED_WaaSMedicSvc",
+      "severity": "Warning",
+      "autoFix": "Services",
+      "title": "Windows Update Medic Service (WaaSMedicSvc) is disabled",
+      "cause": "The service start type is Disabled.",
+      "toolAction": "Attempts to set Manual. Windows protects this service, so the attempt is expected to fail and is reported as a failed fix.",
+      "adminAction": "Investigate manually; usually caused by third-party 'update blocker' tools."
+    },
+    {
+      "id": "SVC_DISABLED_wlidsvc",
+      "severity": "Critical",
+      "autoFix": "Services",
+      "title": "Microsoft Account Sign-In Assistant (wlidsvc) is disabled",
+      "cause": "Required by Windows Autopatch and the Windows Update for Business deployment service. If it is Disabled the device cannot receive Autopatch-managed updates.",
+      "toolAction": "Sets the start type to Manual (default, trigger-start).",
+      "adminAction": "Find what disables it (often a hardening baseline) and exempt it."
+    },
+    {
+      "id": "SVC_DISABLED_DiagTrack",
+      "severity": "Warning",
+      "autoFix": "Services",
+      "title": "Connected User Experiences and Telemetry (DiagTrack) is disabled",
+      "cause": "Diagnostic data cannot be sent, which Autopatch reporting needs.",
+      "toolAction": "Sets the start type to Automatic and starts it.",
+      "adminAction": "Review privacy/hardening baselines that disable it."
+    },
+    {
+      "id": "PAUSE_QUALITY_USER",
+      "severity": "Warning",
+      "autoFix": "Pauses",
+      "title": "Quality updates are paused by the user, not by policy",
+      "cause": "PausedQualityStatus is set but no Intune policy pause exists.",
+      "toolAction": "Removes the user-pause values under HKLM\\SOFTWARE\\Microsoft\\WindowsUpdate\\UX\\Settings when FixPauses = 1.",
+      "adminAction": "Deploy SetDisablePauseUXAccess = 1 in the update ring so users cannot pause."
+    },
+    {
+      "id": "PAUSE_FEATURE_USER",
+      "severity": "Warning",
+      "autoFix": "Pauses",
+      "title": "Feature updates are paused by the user, not by policy",
+      "cause": "PausedFeatureStatus is set but no Intune policy pause exists.",
+      "toolAction": "Removes the user feature-pause values when FixPauses = 1.",
+      "adminAction": "Deploy SetDisablePauseUXAccess = 1."
+    },
+    {
+      "id": "PAUSE_POLICY",
+      "severity": "Info",
+      "autoFix": "None",
+      "title": "Updates are paused by Intune policy",
+      "cause": "A pause was deliberately set by policy (PauseQualityUpdates / PauseQualityUpdatesStartTime).",
+      "toolAction": "Never changed.",
+      "adminAction": "None unless the pause was not intended; policy pauses last 35 days from the start date."
+    },
+    {
+      "id": "DIAGDATA_LOW",
+      "severity": "Warning",
+      "autoFix": "None",
+      "title": "Diagnostic data is below Required",
+      "cause": "AllowTelemetry is 0. Windows Autopatch needs Required (1) or higher.",
+      "toolAction": "Reports only.",
+      "adminAction": "Deploy System/AllowTelemetry = 1 (Required) or higher through Intune."
+    },
+    {
+      "id": "SYNC_STALE",
+      "severity": "Warning",
+      "autoFix": "SyncAndCleanup",
+      "title": "The last MDM sync is older than SyncStaleHours",
+      "cause": "The device has not checked in with Intune recently (offline, broken enrollment, blocked network).",
+      "toolAction": "Starts the enrollment's PushLaunch sync task when FixSyncAndCleanup = 1.",
+      "adminAction": "If it stays stale, check network access to Intune endpoints and the enrollment health."
+    },
+    {
+      "id": "SCAN_STALE",
+      "severity": "Warning",
+      "autoFix": "Services",
+      "title": "No successful Windows Update scan within ScanStaleDays",
+      "cause": "The Windows Update stack is probably broken or blocked.",
+      "toolAction": "Resets the update components (renames SoftwareDistribution and catroot2), at most once per ResetCooldownDays and never during an install or with a restart pending.",
+      "adminAction": "If scans still fail after a reset, check proxy/TLS inspection and WSUS leftovers."
+    },
+    {
+      "id": "DISK_LOW",
+      "severity": "Warning",
+      "autoFix": "SyncAndCleanup",
+      "title": "Free disk space is below MinFreeDiskGB",
+      "cause": "Updates need free space to download and install.",
+      "toolAction": "Deletes temp files older than 7 days and runs DISM component cleanup (20-minute cap) when FixSyncAndCleanup = 1.",
+      "adminAction": "If still low, free space or reimage; also blocks the fallback installer."
+    },
+    {
+      "id": "RESTART_PENDING",
+      "severity": "Info",
+      "autoFix": "None",
+      "title": "A restart is pending",
+      "cause": "A servicing or Windows Update restart is waiting.",
+      "toolAction": "Reports only. Intune-WUO never restarts a device.",
+      "adminAction": "Restarts follow the ring deadline and grace period. Consider native maintenance windows."
+    },
+    {
+      "id": "CONFIGMGR_PRESENT",
+      "severity": "Info",
+      "autoFix": "None",
+      "title": "ConfigMgr client present",
+      "cause": "A co-managed device may still have Windows Update owned by ConfigMgr.",
+      "toolAction": "Reports only.",
+      "adminAction": "Move the Windows Update policies and Device configuration co-management workloads to Intune and clear ConfigMgr client Software Updates settings."
+    },
+    {
+      "id": "AUTOPATCH_READINESS_FAILED",
+      "severity": "Warning",
+      "autoFix": "None",
+      "title": "Windows Autopatch device readiness failed",
+      "cause": "The Autopatch Client Broker's latest RunDeviceReadinessChecks has a non-zero ResultsBitmask or error codes.",
+      "toolAction": "Reports only.",
+      "adminAction": "Review the Autopatch Devices blade (Not ready) and Autopatch alerts for the reason."
+    },
+    {
+      "id": "AUTOPATCH_READINESS_STALE",
+      "severity": "Warning",
+      "autoFix": "None",
+      "title": "Autopatch readiness has not been reported for over 7 days",
+      "cause": "The Client Broker is not running its checks or cannot reach the service.",
+      "toolAction": "Reports only.",
+      "adminAction": "Check the Windows Autopatch Client Broker app status and ClientBroker.log."
+    },
+    {
+      "id": "AUTOPATCH_BROKER_ABSENT",
+      "severity": "Info",
+      "autoFix": "None",
+      "title": "Windows Autopatch Client Broker is not installed",
+      "cause": "The optional broker is missing, so Autopatch's on-device readiness result is unavailable.",
+      "toolAction": "Reports only.",
+      "adminAction": "Install it from Intune admin center > Tenant administration > Windows Autopatch > Tenant management > Manage client broker."
+    },
+    {
+      "id": "FALLBACK_TASK_MISSING",
+      "severity": "Warning",
+      "autoFix": "Services",
+      "title": "The fallback scheduled task is missing or disabled",
+      "cause": "Mode is RemediateAndFallback but \\IntuneWUO\\IntuneWUO-Fallback is not registered or is disabled.",
+      "toolAction": "Re-registers the task from the installed package.",
+      "adminAction": "If it keeps disappearing, check the Win32 app assignment and anything removing scheduled tasks."
+    },
+    {
+      "id": "HOTPATCH_UNSUPPORTED_OS",
+      "severity": "Warning",
+      "autoFix": "None",
+      "title": "Hotpatch enrolled but the OS is too old",
+      "cause": "Hotpatch needs Windows 11 24H2 (build 26100) or later. Reported only when hotpatch enrollment is known (enrollment detection is not implemented yet).",
+      "toolAction": "Reports only.",
+      "adminAction": "Upgrade the device or exclude it from the hotpatch policy."
+    },
+    {
+      "id": "HOTPATCH_VBS_NOT_RUNNING",
+      "severity": "Warning",
+      "autoFix": "None",
+      "title": "Hotpatch needs virtualization-based security running",
+      "cause": "VBS is not running on a hotpatch-enrolled device.",
+      "toolAction": "Reports only. Never changes VBS.",
+      "adminAction": "Deploy the Intune policy VirtualizationBasedTechnology (VBS), then restart."
+    },
+    {
+      "id": "HOTPATCH_CHPE_ENABLED",
+      "severity": "Warning",
+      "autoFix": "None",
+      "title": "Arm64 hotpatch needs CHPE disabled",
+      "cause": "HotPatchRestrictions is not 1 on an Arm64 hotpatch-enrolled device.",
+      "toolAction": "Reports only. Never changes CHPE.",
+      "adminAction": "Deploy the Intune DisableCHPE policy (System/DisableCHPE) and restart. Note that this can affect 32-bit x86 apps on Arm."
+    }
+  ]
+}

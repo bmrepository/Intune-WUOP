@@ -1,0 +1,21 @@
+{
+  "name": "intune-wuo-mcp",
+  "version": "0.1.0",
+  "description": "MCP server that lets AI agents learn, plan and deploy the Intune-WUO Windows Update orchestration project. Offline and read-only: it never talks to your tenant.",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/bmrepository/Intune-WUOP",
+  "repository": { "type": "git", "url": "git+https://github.com/bmrepository/Intune-WUOP.git" },
+  "bin": { "intune-wuo-mcp": "mcp/server.mjs" },
+  "main": "mcp/server.mjs",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node mcp/server.mjs",
+    "start:http": "node mcp/server.mjs --http",
+    "test": "node --test \"mcp/test/*.test.mjs\""
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.8"
+  }
+}

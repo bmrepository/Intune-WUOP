@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "intune-wuo": {
+      "command": "npx",
+      "args": ["-y", "github:bmrepository/Intune-WUOP"]
+    }
+  }
+}

@@ -1,0 +1,21 @@
+# Intune-WUO
+
+> Open-source Windows Update orchestration layer for Intune-managed Windows devices that use Windows Autopatch. It detects device-side problems that stop approved updates installing, fixes the safe ones, and as a last resort installs overdue approved quality updates. AI agents can plan and deploy it through an offline, read-only MCP server and a skill. Start with AGENTS.md.
+
+## Start here (for AI agents)
+- [AGENTS.md](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/AGENTS.md): vendor-neutral rules and entry points
+- [AI agents guide](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/docs/AI-AGENTS.md): connect the MCP server to your client, connect to an Intune tenant safely, example prompts
+- [Deployment skill](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/skills/intune-wuo-deploy/SKILL.md): the workflow, rules and Graph facts in one file
+
+## Project documentation
+- [README](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/README.md): what it does, modes and switches, registry and CSP reference, deployment guide
+- [Design](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/docs/DESIGN.md): components, finding catalogue, guardrails, fallback rules, event ids
+- [Findings catalogue (JSON)](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/docs/findings.json): every finding id with cause, tool action and admin action
+
+## MCP server
+- Run (stdio): `npx -y github:bmrepository/Intune-WUOP`
+- [Server source](https://github.com/bmrepository/Intune-WUOP/tree/main/mcp): tools wuo_overview, wuo_check_prerequisites, wuo_plan_deployment, wuo_generate_graph_requests, wuo_generate_mode_change, wuo_validation_checklist, wuo_interpret_status, wuo_explain_finding, wuo_list_findings, wuo_get_doc, wuo_win32_app_reference
+
+## Optional
+- [Validation harness](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/tools/Invoke-WUOValidation.ps1): end-to-end check on a disposable test device
+- [Build script](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/build/Build-IntuneWUO.ps1): produces the Win32 package, Remediation scripts and the four config packages

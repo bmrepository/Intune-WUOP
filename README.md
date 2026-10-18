@@ -11,6 +11,7 @@
 
 - [Why Intune-WUO exists](#why-intune-wuo-exists)
 - [What it does](#what-it-does)
+- [Deploy with an AI agent](#deploy-with-an-ai-agent)
 - [How it fits with Windows Autopatch](#how-it-fits-with-windows-autopatch)
 - [Architecture](#architecture)
 - [How a run works](#how-a-run-works)
@@ -68,6 +69,33 @@ Intune-WUO does four things:
 
 ---
 
+## Deploy with an AI agent
+
+Ask ChatGPT, Claude, Grok, Gemini, Copilot or any MCP-capable agent to plan and deploy Intune-WUO in plain language. The project ships an **MCP server** and a **skill** so the agent learns exactly how to do it, and never needs access it should not have.
+
+```bash
+# Claude Code: the server (stdio). Needs Node.js 22+
+claude mcp add intune-wuo -- npx -y github:bmrepository/Intune-WUOP
+
+# Claude Code: server + skill as a plugin
+/plugin install intune-wuo --marketplace bmrepository/Intune-WUOP
+```
+
+Then ask: *"Use the Intune-WUO MCP server to help me deploy Intune-WUO to my tenant. My devices are in Windows Autopatch and I want a pilot group first."*
+
+| | |
+|---|---|
+| **MCP server** | `npx -y github:bmrepository/Intune-WUOP`: prerequisites check, phased plan, exact Microsoft Graph request bodies, mode changes, validation checklists, and a status-line interpreter. **Offline and read-only: it never contacts your tenant and holds no credentials.** |
+| **Skill** | [`skills/intune-wuo-deploy/SKILL.md`](skills/intune-wuo-deploy/SKILL.md): the workflow, hard rules and Graph facts in one file |
+| **Any other agent** | Point it at [`AGENTS.md`](AGENTS.md) and [`llms.txt`](llms.txt), or paste: *"Read https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/AGENTS.md and help me deploy Intune-WUO."* |
+| **Remote clients (ChatGPT, Grok)** | `node mcp/server.mjs --http` behind HTTPS. See the guide. |
+| **Executing changes** | Your agent's own tenant tool, or [`tools/Invoke-WUOGraphRequests.ps1`](tools/Invoke-WUOGraphRequests.ps1), which asks for confirmation on every request |
+
+**The full guide is [docs/AI-AGENTS.md](docs/AI-AGENTS.md)**: configuration for Claude Desktop, VS Code, Cursor, Gemini CLI and Codex CLI; how to connect an agent to your Intune tenant at four access levels from "none" to "write", with the least-privilege permissions to grant; example prompts; and a safety checklist.
+
+> The server and the agent only *plan and generate*. Nothing reaches your tenant unless **you** (or your agent, after you approve each batch) send it. Start every rollout with a pilot group in `ReportOnly`.
+
+---
 ## How it fits with Windows Autopatch
 
 | Responsibility | Windows Autopatch / Intune | Intune-WUO |
@@ -247,13 +275,7 @@ Hotpatch installs monthly security updates **without a restart** on eligible dev
 - **Baseline or hotpatch cycle** is worked out from what Windows Update offers and from install history, **never from a calendar**. Microsoft adds unplanned baseline months; June and September 2026 were baselines.
 - **Hotpatch-aware compliance:** on a hotpatch device in a hotpatch month, the absence of a new LCU isn't a finding.
 - **The fallback installs what's offered.** In a hotpatch month that's the hotpatch, with no restart. In a baseline month it's the LCU, and the restart is left to Windows.
-- **Hotpatch findings:**
-  - `HOTPATCH_NOT_ENROLLED`
-  - `HOTPATCH_VBS_NOT_RUNNING`
-  - `HOTPATCH_CHPE_ENABLED`
-  - `HOTPATCH_OFF_BASELINE`
-  - `HOTPATCH_FELL_BACK_TO_LCU`
-  - `HOTPATCH_UNSUPPORTED_OS`
+- **Hotpatch findings implemented today:** `HOTPATCH_UNSUPPORTED_OS`, `HOTPATCH_VBS_NOT_RUNNING`, `HOTPATCH_CHPE_ENABLED`. They are raised only when hotpatch enrollment is known, and reading enrollment is not implemented yet, so they are currently dormant. Planned: `HOTPATCH_NOT_ENROLLED`, `HOTPATCH_OFF_BASELINE`, `HOTPATCH_FELL_BACK_TO_LCU`.
 - VBS and CHPE are **never changed** by the tool. Each finding names the Intune policy that fixes it (the `VirtualizationBasedTechnology` CSP, the `DisableCHPE` CSP).
 
 ---
@@ -651,8 +673,16 @@ src/
   Win32/                Invoke-WUOFallback.ps1 (task entry point), Install/Uninstall scripts, app detection rule
 tests/                  Pester tests (mocked registry, services, backend and update API)
 build/                  Build-IntuneWUO.ps1: staging, PSWindowsUpdate pinning, signing, .intunewin
+tools/                  Invoke-WUOValidation.ps1, Invoke-WUOGraphRequests.ps1, New-DiagramImages.ps1
+mcp/                    MCP server for AI agents (Node): server.mjs, src/, test/
+skills/                 intune-wuo-deploy/SKILL.md (agent skill)
+.claude-plugin/         Claude Code plugin + marketplace manifests (skill + MCP server)
+AGENTS.md, llms.txt, .mcp.json, package.json   Agent entry points and the npm package for the MCP server
 docs/
   DESIGN.md             Design: finding catalogue, guardrails, schemas, event IDs
+  AI-AGENTS.md          Deploy with an AI agent: client setup, tenant connection, safety
+  findings.json         Machine-readable findings catalogue (used by the MCP server)
+  images/               SVG diagrams (light and dark)
   discovery/            Read-only discovery snapshots from test devices
 ```
 
@@ -663,6 +693,10 @@ On a device the Win32 app installs to `%ProgramFiles%\IntuneWUO\` (`Module\`, `T
 ```powershell
 Install-Module Pester -Scope CurrentUser   # Pester 5 or later
 Invoke-Pester -Path .\tests -Output Detailed
+
+# MCP server (Node 22+)
+npm install
+npm test
 ```
 
 ### Validating on a real device
@@ -692,6 +726,8 @@ Results are written to `docs\validation\<host>-<timestamp>.md` and `.json`. Temp
 - [ ] Attribute policy values to domain GPO vs local policy (enables `FixPolicyKeys`; today policy-key findings are report-only)
 - [ ] Hotpatch enrollment detection (hotpatch findings stay skipped until then)
 - [x] Read the Autopatch Client Broker readiness result, ring and timestamp
+- [x] MCP server, skill, Claude Code plugin and agent guide (offline, read-only; tenant writes stay with the agent's own tool after human approval)
+- [ ] Verify the generated Graph requests end to end in a test tenant (payloads follow Microsoft's published schema but have not been sent to a tenant)
 - [ ] Validation on a 24H2/25H2 device (hybrid-joined or co-managed), then the pilot
 
 ## License

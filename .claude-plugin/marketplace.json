@@ -1,0 +1,12 @@
+{
+  "name": "intune-wuo",
+  "description": "Intune-WUO: Windows Update orchestration for Intune and Windows Autopatch, with an AI-agent deployment skill and MCP server.",
+  "owner": { "name": "bmrepository" },
+  "plugins": [
+    {
+      "name": "intune-wuo",
+      "source": "./",
+      "description": "Deployment skill and offline read-only MCP server for Intune-WUO."
+    }
+  ]
+}
