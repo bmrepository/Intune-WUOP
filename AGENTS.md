@@ -10,6 +10,10 @@ This repository is **Intune-WUO**, an open-source Windows Update orchestration l
 2. **Or read the docs** in this order if you cannot use MCP: [docs/AI-AGENTS.md](docs/AI-AGENTS.md), then the README sections *Modes and switches*, *Prerequisites*, *Deployment guide*, then [docs/findings.json](docs/findings.json). A machine-friendly index is in [llms.txt](llms.txt).
 3. **Load the skill** if you are Claude Code: [skills/intune-wuo-deploy/SKILL.md](skills/intune-wuo-deploy/SKILL.md) (or install the plugin: `/plugin install intune-wuo --marketplace bmrepository/Intune-WUOP`).
 
+## Continuing development
+
+If you are taking over development (for example while another assistant is unavailable), read **[HANDOFF.md](HANDOFF.md)** first: current state, decisions already made, a prioritised backlog, gotchas, and the definition of done.
+
 ## Non-negotiable rules
 
 - Start with a **pilot group in ReportOnly**. Never assign to All devices or All users.
