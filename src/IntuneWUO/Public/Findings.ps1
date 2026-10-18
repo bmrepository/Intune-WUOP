@@ -111,8 +111,26 @@ function Get-WUOFinding {
             -Message 'ConfigMgr client present; confirm the Windows Update workload is on Intune.'))
     }
 
-    if ($Config.Mode -eq 'RemediateAndFallback' -and $State.FallbackTask) {
-        if (-not $State.FallbackTask['Present'] -or -not $State.FallbackTask['Enabled']) {
+    # Autopatch's own verdict. A missing broker is informational: it is optional and not on every device.
+    $ap = if ($State.Contains('Autopatch')) { $State['Autopatch'] } else { $null }
+    if ($ap -and $ap['BrokerPresent']) {
+        if (($null -ne $ap['ResultsBitmask'] -and [int64]$ap['ResultsBitmask'] -ne 0) -or @($ap['ErrorCodes']).Count -gt 0) {
+            $findings.Add((New-WUOFinding -Id 'AUTOPATCH_READINESS_FAILED' -Severity Warning `
+                -Message ("Autopatch device readiness failed (ResultsBitmask={0}, ErrorCodes={1})." -f $ap['ResultsBitmask'], (@($ap['ErrorCodes']) -join ';'))))
+        }
+        if ($ap['ReadinessAt'] -and ($Now - [datetime]$ap['ReadinessAt']).TotalDays -gt 7) {
+            $findings.Add((New-WUOFinding -Id 'AUTOPATCH_READINESS_STALE' -Severity Warning `
+                -Message 'The Autopatch Client Broker has not reported device readiness for over 7 days.'))
+        }
+    }
+    elseif ($ap) {
+        $findings.Add((New-WUOFinding -Id 'AUTOPATCH_BROKER_ABSENT' -Severity Info `
+            -Message 'The Windows Autopatch Client Broker is not installed; its readiness checks are unavailable.'))
+    }
+
+    $task = if ($State.Contains('FallbackTask')) { $State['FallbackTask'] } else { $null }
+    if ($Config.Mode -eq 'RemediateAndFallback' -and $task) {
+        if (-not $task['Present'] -or -not $task['Enabled']) {
             $findings.Add((New-WUOFinding -Id 'FALLBACK_TASK_MISSING' -Severity Warning -AutoFix Services `
                 -Message 'The fallback scheduled task is missing or disabled.'))
         }

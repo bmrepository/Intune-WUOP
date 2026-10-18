@@ -114,6 +114,9 @@ function Get-WUOState {
         AutopatchDrc = Test-Path (Join-Path $env:ProgramData 'Microsoft\CMDExtension\Plugins\DeviceReadinessPlugin\Logs\DRCResults.json.log')
     }
 
+    try { $state.Autopatch = Get-WUOAutopatchState }
+    catch { $errors['Autopatch'] = $_.Exception.Message; $state.Autopatch = $null }
+
     try { $state.FallbackTask = Get-WUOFallbackTaskStatus }
     catch { $errors['FallbackTask'] = $_.Exception.Message; $state.FallbackTask = $null }
 

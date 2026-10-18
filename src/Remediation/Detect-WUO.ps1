@@ -54,7 +54,8 @@ try {
         Write-WUOEvent -Id (Get-WUOEventId -Kind Finding -FindingId $f.Id) -EntryType Warning -Message "$($f.Id): $($f.Message)"
     }
 
-    Write-Output (Format-WUOStatus -Config $config -Findings $findings -Build $state.OS.Build)
+    $ring = if ($state.Autopatch) { $state.Autopatch['Ring'] } else { $null }
+    Write-Output (Format-WUOStatus -Config $config -Findings $findings -Build $state.OS.Build -Ring $ring)
 
     $canRemediate = $config.Mode -in 'Remediate', 'RemediateAndFallback'
     $fixable = @($findings | Where-Object { Test-WUOFixEnabled -Finding $_ -Config $config })

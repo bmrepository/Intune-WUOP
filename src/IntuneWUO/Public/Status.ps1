@@ -9,6 +9,7 @@ function Format-WUOStatus {
         [Parameter(Mandatory)]$Config,
         [object[]]$Findings = @(),
         [int]$Build = 0,
+        [string]$Ring,
         [switch]$Disabled,
         [int]$MaxLength = 2048
     )
@@ -18,6 +19,7 @@ function Format-WUOStatus {
     else { 'Compliant' }
 
     $head = 'WUO|v1|{0}|Mode={1}|Build={2}' -f $result, $Config.Mode, $Build
+    if ($Ring) { $head += '|Ring=' + ($Ring -replace '[^A-Za-z0-9_.-]', '') }
     $ids = @($Findings | Sort-Object @{ Expression = { switch ($_.Severity) { 'Critical' { 0 } 'Warning' { 1 } default { 2 } } } }, Id |
         ForEach-Object { $_.Id })
     if ($ids.Count -eq 0) { return $head }

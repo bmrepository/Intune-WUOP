@@ -132,6 +132,48 @@ Describe 'Get-WUOFinding' {
     }
 }
 
+Describe 'Autopatch Client Broker readiness' {
+    BeforeEach { $cfg = ConvertTo-WUOConfig -Raw @{} }
+
+    It 'parses the latest readiness result from broker log lines' {
+        $lines = @(
+            '<![LOG[Completed RunDeviceReadinessChecks. ResultsBitmask=4, ErrorCodes=E1;E2,RegistryValidationCodes=[]]LOG]!>',
+            '<![LOG[something else]LOG]!>',
+            '<![LOG[Completed RunDeviceReadinessChecks. ResultsBitmask=0, ErrorCodes=,RegistryValidationCodes=[]]LOG]!>'
+        )
+        $r = ConvertFrom-WUOReadinessLog -Lines $lines
+        $r.ResultsBitmask | Should -Be 0
+        @($r.ErrorCodes).Count | Should -Be 0
+    }
+    It 'returns null when the log has no readiness result' {
+        ConvertFrom-WUOReadinessLog -Lines @('nothing here') | Should -BeNullOrEmpty
+    }
+    It 'raises no finding when readiness passed' {
+        $s = New-TestState
+        $s.Autopatch = @{ BrokerPresent = $true; Ring = 'Test'; ReadinessAt = (Get-Date).AddHours(-3); ResultsBitmask = 0; ErrorCodes = @() }
+        Get-Ids $s $cfg | Should -BeNullOrEmpty
+    }
+    It 'flags a failed readiness result' {
+        $s = New-TestState
+        $s.Autopatch = @{ BrokerPresent = $true; Ring = 'Test'; ReadinessAt = (Get-Date); ResultsBitmask = 8; ErrorCodes = @('X1') }
+        Get-Ids $s $cfg | Should -Contain 'AUTOPATCH_READINESS_FAILED'
+    }
+    It 'flags stale readiness' {
+        $s = New-TestState
+        $s.Autopatch = @{ BrokerPresent = $true; Ring = 'Test'; ReadinessAt = (Get-Date).AddDays(-10); ResultsBitmask = 0; ErrorCodes = @() }
+        Get-Ids $s $cfg | Should -Contain 'AUTOPATCH_READINESS_STALE'
+    }
+    It 'treats a missing broker as informational only' {
+        $s = New-TestState
+        $s.Autopatch = @{ BrokerPresent = $false }
+        $f = Get-WUOFinding -State $s -Config $cfg | Where-Object Id -eq 'AUTOPATCH_BROKER_ABSENT'
+        $f.Severity | Should -Be 'Info'
+    }
+    It 'includes the ring in the status line' {
+        Format-WUOStatus -Config $cfg -Build 26100 -Ring 'Test' | Should -Be 'WUO|v1|Compliant|Mode=ReportOnly|Build=26100|Ring=Test'
+    }
+}
+
 Describe 'Format-WUOStatus' {
     BeforeAll { $cfg = ConvertTo-WUOConfig -Raw @{ Mode = 'Remediate' } }
 

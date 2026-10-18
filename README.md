@@ -17,6 +17,7 @@
 - [What it checks and fixes](#what-it-checks-and-fixes)
 - [Hotpatch](#hotpatch)
 - [Modes and switches](#modes-and-switches)
+- [Registry and CSP reference](#registry-and-csp-reference)
 - [Prerequisites](#prerequisites)
 - [Deployment guide](#deployment-guide)
 - [Operating it](#operating-it)
@@ -266,6 +267,170 @@ To check the current mode on a single device:
 
 ```powershell
 Get-ItemProperty -Path 'HKLM:\SOFTWARE\IntuneWUO'
+```
+
+---
+
+## Registry and CSP reference
+
+Every registry location that takes part in orchestrating Windows Update on an Intune-managed device. Each entry is marked **(docs)** when Microsoft documents it, or **(observed)** when it was seen on a real Autopatch-enrolled test device (Windows 11 25H2, build 26100) but is not published. Observed locations can change between Windows builds, so Intune-WUO only ever *reads* them.
+
+### 1. How a setting travels from Intune to the registry
+
+```mermaid
+flowchart LR
+  I["Intune / Autopatch<br/>update ring · quality · feature · driver policies"] -->|"OMA-DM over MDM channel<br/>(Policy CSP: ./Device/Vendor/MSFT/Policy/Config/Update/*)"| D["DMClient<br/>(MDM enrollment)"]
+  D --> P["PolicyManager providers<br/>HKLM\\SOFTWARE\\Microsoft\\PolicyManager\<br/>providers\\&lt;EnrollmentGUID&gt;\\default\\Device\\Update"]
+  P -->|"resolved winner"| C["PolicyManager current<br/>HKLM\\SOFTWARE\\Microsoft\\PolicyManager\<br/>current\\device\\Update"]
+  G["Group Policy / local policy / WSUS / ConfigMgr<br/>HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate[\\AU]"] -->|"read alongside MDM"| W
+  C --> W["Windows Update client<br/>UsoSvc · wuauserv · WaaSMedic · Orchestrator"]
+  W --> S["State Windows keeps itself<br/>UpdatePolicy\\Settings · UX\\Settings · Orchestrator · reboot flags"]
+  CB["Autopatch Client Broker<br/>HKLM\\SOFTWARE\\Microsoft\\WindowsAutopatch\\ClientBroker"] -.->|"reads policy & state,<br/>reports readiness"| C
+  CB -.-> G
+```
+
+Key points:
+
+- **Update rings and Windows Update for Business settings reach the device over the MDM channel (Policy CSP), not through the Intune Management Extension.** The IME only delivers scripts, Win32 apps and Remediations, which is how Intune-WUO itself gets onto the device.
+- The MDM policy engine stores what it received per provider, then publishes the **winning** value under `current\device`. **(docs for the default path; observed for the provider and `current` layout)**
+- Group Policy and the MDM store are separate. When both set the same thing, Windows applies its own precedence, which is why leftover GPO or WSUS values are the most common cause of "policy not effective". On Windows 11 24H2 builds with KB5101684 (26100.8973) and later, the `IgnoreWindowsUpdateGroupPolicies` MDM policy makes Windows ignore Windows Update Group Policy entirely. **(docs)**
+
+### 2. MDM (Intune) policy store
+
+| Location | What it holds |
+|---|---|
+| `HKLM\SOFTWARE\Microsoft\PolicyManager\default\Update` **(docs)** | OS defaults and the schema of MDM-managed Update settings |
+| `HKLM\SOFTWARE\Microsoft\PolicyManager\providers\<EnrollmentGUID>\default\Device\Update` **(observed)** | Values received from the MDM server, per enrollment, with a `<Setting>_LastWrite` marker beside each. `<EnrollmentGUID>` matches `Enrollments\<GUID>` below. For a user-scope policy the path is `...\default\<UserSID>\...` |
+| `HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\Update` **(observed)** | The resolved value Windows uses, plus `<Setting>_ProviderSet` (1 = a provider set it) and `<Setting>_WinningProvider` (the enrollment GUID). **This is the key Intune-WUO and the Autopatch broker read** |
+| `HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\System` **(observed)** | System policies that affect updates, notably `AllowTelemetry` (diagnostic data level) and `AllowBuildPreview` |
+| `HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\ControlPolicyConflict` **(observed)** | Conflict handling between MDM and Group Policy |
+| `HKLM\SOFTWARE\Microsoft\Enrollments\<EnrollmentGUID>` **(docs)** | The MDM enrollment itself. `ProviderID` = `MS DM Server` for Intune; `FirstSync` holds first-sync / ESP status |
+| Task Scheduler `\Microsoft\Windows\EnterpriseMgmt\<EnrollmentGUID>\` **(docs)** | The sync tasks the DMClient runs: `PushLaunch`, `PushRenewal`, `Login Schedule created by enrollment client`, and the schedule tasks. Their last-run times show when the device last synced |
+
+### 3. Policy CSP – Update: setting → registry
+
+CSP root: `./Device/Vendor/MSFT/Policy/Config/Update/<Setting>`. Each MDM setting appears under `PolicyManager\current\device\Update\<Setting>`. The Group Policy equivalent is under `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate` unless stated. Only settings relevant to orchestration are listed; the full list is in the [Policy CSP – Update](https://learn.microsoft.com/windows/client-management/mdm/policy-csp-update) reference.
+
+**Deferrals, pauses and targeting** **(docs)**
+
+| CSP setting | Values | GPO registry value |
+|---|---|---|
+| `DeferQualityUpdatesPeriodInDays` | 0-30 days | `DeferQualityUpdatesPeriodinDays` (+ `DeferQualityUpdates`=1) |
+| `DeferFeatureUpdatesPeriodInDays` | 0-365 days | `DeferFeatureUpdatesPeriodinDays` (+ `DeferFeatureUpdates`=1) |
+| `PauseQualityUpdates` / `PauseQualityUpdatesStartTime` | 1 = paused; start date `yyyy-mm-dd`. A policy pause lasts 35 days from the start date | `PauseQualityUpdatesStartTime` |
+| `PauseFeatureUpdates` / `PauseFeatureUpdatesStartTime` | same, for feature updates | `PauseFeatureUpdatesStartTime` |
+| `SetDisablePauseUXAccess` | 1 = remove the user's *Pause updates* control | `SetDisablePauseUXAccess` |
+| `SetDisableUXWUAccess` | 1 = remove the user's *Check for updates* control | `SetDisableUXWUAccess` |
+| `BranchReadinessLevel` | channel selector. The CSP page lists 16 = Semi-Annual Enterprise Channel (1903 and later); the client-policy page lists 32 for General Availability | `BranchReadinessLevel` |
+| `ProductVersion` + `TargetReleaseVersion` | target OS product and version (both needed) | `ProductVersion`, `TargetReleaseVersion` |
+| `ExcludeWUDriversInQualityUpdate` | 1 = no drivers with quality updates | `ExcludeWUDriversInQualityUpdate` |
+| `AllowOptionalContent` | 1-3 = receive optional updates / CFRs | `SetAllowOptionalContent` |
+| `AllowMUUpdateService` | 1 = also scan Microsoft Update (other Microsoft products) | under `WindowsUpdate\AU` (part of *Configure Automatic Updates*) |
+| `AllowTemporaryEnterpriseFeatureControl` | 1 = turn on features shipped in monthly updates | `AllowTemporaryEnterpriseFeatureControl` |
+| `ManagePreviewBuilds` | Insider preview behaviour | `ManagePreviewBuilds` |
+| `DisableWUfBSafeguards` | 1 = skip safeguard holds | per ADMX |
+
+**Deadlines, restarts and installation behaviour** **(docs)**
+
+| CSP setting | Values | Notes |
+|---|---|---|
+| `ConfigureDeadlineForQualityUpdates` / `...ForFeatureUpdates` | 0-30 days | When set, `AllowAutoUpdate` install/restart behaviour is ignored. **Intune-WUO uses the quality deadline as the base of its fallback timer** |
+| `ConfigureDeadlineGracePeriod` / `...GracePeriodForFeatureUpdates` | 0-7 days | Minimum days from installation to automatic restart |
+| `ConfigureDeadlineNoAutoReboot...` | 0/1 | Hold restarts until deadline and grace period have passed |
+| `AllowAutoUpdate` | 0-5 (6 is written by the Intune *Reset to default* option **(observed)**) | GPO: `AU\AUOptions` / `AU\NoAutoUpdate` |
+| `ScheduledInstallDay` / `...Time` / `...EveryWeek` / `...First-FourthWeek` | day 0-7, hour 0-23 | Only with `AllowAutoUpdate` 3 or 4. GPO: `AU\ScheduledInstall*` |
+| `ActiveHoursStart` / `ActiveHoursEnd` / `ActiveHoursMaxRange` | hours 0-23; range 8-18 | GPO: `ActiveHoursStart`, `ActiveHoursEnd`, `SetActiveHours` |
+| `UpdateNotificationLevel` / `NoUpdateNotificationsDuringActiveHours` | 0-2 / 0-1 | GPO: `SetUpdateNotificationLevel` |
+| `SetEDURestart` | 0/1 | Education cart restarts |
+| `AutomaticMaintenanceWakeUp` | 0/1 | GPO: `Policies\Microsoft\Windows\Task Scheduler\Maintenance\WakeUp` |
+| `ConfigureFeatureUpdateUninstallPeriod` | 2-60 days | Rollback window |
+| `AllowAutoWindowsUpdateDownloadOverMeteredNetwork` | 0/1 | |
+| `AlwaysAutoRebootAtScheduledTimeMinutes`, `AutoRestart*`, `EngagedRestart*`, `Schedule*RestartWarning`, `SetAutoRestartNotificationDisable` | | **Legacy, not applicable to Windows 11**. Intune-WUO reports their presence as noise only |
+
+**Native maintenance window** (Windows 11 24H2 with KB5077181, build 26100.7840 and later) **(docs)**: `MaintenanceWindowEnabled`, `MaintenanceWindowStartTime`, `MaintenanceWindowDurationHours` (2-24), `MaintenanceWindowRepeatScheduleOption` (1 none / 2 daily / 3 weekly / 4 monthly), `MaintenanceWindowStartDate`, `MaintenanceWindowUpdateActions` (1 download+install+restart / 2 install+restart / 3 restart only), the `MaintenanceWindowWeekly<Day>` flags and the `MaintenanceWindowMonthly*` settings. **When `MaintenanceWindowEnabled` = 1, Intune-WUO's fallback installer stays out of the way completely.**
+
+**Update source (WSUS) and conflicts** **(docs)**
+
+| CSP setting | GPO registry location | Why it matters |
+|---|---|---|
+| `UpdateServiceUrl`, `UpdateServiceUrlAlternate` | `WindowsUpdate\WUServer`, `WUStatusServer`, `UpdateServiceUrlAlternate` | Points the device at WSUS instead of Windows Update |
+| *(GPO only)* | `WindowsUpdate\AU\UseWUServer` = 1 | Tells Automatic Updates to use that server |
+| `SetPolicyDrivenUpdateSourceForQualityUpdates` / `...FeatureUpdates` / `...DriverUpdates` / `...OtherUpdates` | `WindowsUpdate\...` | 0 = Windows Update, **1 = WSUS (the default!)**. Only effective when a WSUS URL is set |
+| `DisableDualScan` (legacy) | `WindowsUpdate\DisableDualScan` | With a WSUS URL, blocks scans against Windows Update, which blocks Autopatch |
+| `DetectionFrequency` | under `WindowsUpdate\AU` | Only effective with a WSUS URL; 1-22 h |
+| `IgnoreWindowsUpdateGroupPolicies` | n/a | **1 = ignore all Windows Update Group Policy.** The recommended tenant-wide fix for GPO conflicts (26100.8973 and later) |
+| *(GPO only)* | `WindowsUpdate\DoNotConnectToWindowsUpdateInternetLocations` | **Autopatch flags this.** Blocks Windows Update, Store and Delivery Optimization |
+| *(GPO only)* | `WindowsUpdate\DisableWindowsUpdateAccess` | **Autopatch flags this** |
+| *(GPO only)* | `WindowsUpdate\AU\NoAutoUpdate` | **Autopatch flags this.** 1 = automatic updates off |
+
+### 4. State that Windows maintains itself (read, never written by policy)
+
+| Location | Values | Used by Intune-WUO |
+|---|---|---|
+| `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UpdatePolicy\Settings` **(docs)** | `PausedQualityStatus`, `PausedFeatureStatus` (0 not paused, 1 paused, 2 auto-resumed); `PausedQualityDate`, `PausedFeatureDate` | Detects pauses. Never written |
+| `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings` **(observed)** | User-facing state: `PauseQualityUpdatesStartTime/EndTime`, `PauseFeatureUpdatesStartTime/EndTime`, `PauseUpdatesStartTime`, `PauseUpdatesExpiryTime` (set when a user pauses in Settings), `ActiveHoursStart/End`, `IsExpedited`, `RestartNotificationsAllowed2`, `IsContinuousInnovationOptedIn` | **The `Pause*` values are what the pause fix removes** |
+| `HKLM\SOFTWARE\Microsoft\WindowsUpdate\Orchestrator` **(docs)** | `\Configurations\UsoDisableAADJAttribution` (hide organisation name in notifications); `ScanBeforeInitialLogonAllowed` under `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator` (update before first sign-in) | Reported only |
+| `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending` **(observed)** | Key exists = servicing restart pending | `RESTART_PENDING` |
+| `HKLM\SOFTWARE\Microsoft\WindowsUpdate\Auto Update\RebootRequired` **(observed)** | Key exists = Windows Update restart pending | `RESTART_PENDING` |
+| `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager` → `PendingFileRenameOperations` | Set on many healthy devices | **Deliberately ignored** |
+| `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management` → `HotPatchRestrictions` **(docs)** | 1 = CHPE disabled (Arm64 hotpatch requirement) | `HOTPATCH_CHPE_ENABLED` |
+| `HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection` and `PolicyManager\current\device\System` → `AllowTelemetry` **(docs)** | 0 off, 1 Required, 2 Enhanced/3 Optional | `DIAGDATA_LOW` (Autopatch needs Required or higher) |
+| `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` **(docs)** | `CurrentBuild`, `UBR`, `DisplayVersion`, `EditionID` | Build / edition checks |
+| WMI `root\Microsoft\Windows\DeviceGuard\Win32_DeviceGuard` **(docs)** | `VirtualizationBasedSecurityStatus` (2 = running), code-integrity enforcement | Hotpatch VBS check; WDAC detection |
+
+### 5. Windows Autopatch on the device
+
+| Location | What it is |
+|---|---|
+| `HKLM\SOFTWARE\Microsoft\WindowsAutopatch\ClientBroker` **(observed)** | Written by the **Windows Autopatch Client Broker**. `Ring` (for example `Test`), `DeviceReadiness` (JSON results per check), `DeviceReadinessTimestamp` (Unix seconds). It also holds a signed access link (`ActionsFeedUri`); **Intune-WUO never reads that value** and you should not paste it into tickets or logs |
+| `C:\ProgramData\Microsoft\AutopatchClientBroker\Logs\ClientBroker.log` **(observed)** | CMTrace-format broker log. The line `Completed RunDeviceReadinessChecks. ResultsBitmask=<n>, ErrorCodes=<...>` is the readiness verdict (0 = all pass). **Intune-WUO reads the latest such line** (`AUTOPATCH_READINESS_FAILED`) |
+| `C:\Program Files\Windows Autopatch Client Broker\` **(observed)** | Broker binaries (installed as a Win32 app via the *Manage client broker* tenant setting) |
+| `%ProgramData%\Microsoft\CMDExtension\Plugins\DeviceReadinessPlugin\Logs\DRCResults.json.log` **(docs, older agent)** | Where Microsoft's documentation says readiness results are written. Newer brokers log to the path above instead |
+
+The broker's own log lists the registry keys Autopatch evaluates, which is a useful map of what *Autopatch itself* treats as relevant **(observed)**: `PolicyManager\current\device\Update`, `Policies\Microsoft\Windows\WindowsUpdate` and `\AU`, `WindowsUpdate\UpdatePolicy\Settings`, the Appraiser and compatibility markers under `Windows NT\CurrentVersion\AppCompatFlags\{Appraiser\RunResults\LastRun, CompatMarkers\*, TargetVersionUpgradeExperienceIndicators\*}`, `CurrentVersion\SideBySide\CorruptionFlags`, `CurrentVersion\WindowsUpdate\OSUpgrade\Rollback`, Microsoft 365 Apps `ClickToRun\Configuration` and `Policies\...\officeupdate`, and `Policies\Microsoft\EdgeUpdate`.
+
+### 6. Other agents that touch the same settings
+
+| Location | Meaning |
+|---|---|
+| `HKLM\SOFTWARE\Microsoft\CCM`, `C:\Windows\ccmsetup` **(observed)** | ConfigMgr client present. On co-managed devices the *Windows Update policies* workload must be set to Intune, and ConfigMgr client Software Updates settings must not be configured |
+| `C:\ProgramData\Microsoft\IntuneManagementExtension\Logs\` **(docs)** | IME logs (`IntuneManagementExtension.log`, `AgentExecutor.log`, `AppWorkload.log`, `HealthScripts.log`). Remediation runs are in `HealthScripts.log`. Intune-WUO writes its own logs in an `IntuneWUO` subfolder here so *Collect diagnostics* picks them up |
+| `HKLM\SOFTWARE\Microsoft\IntuneManagementExtension` **(observed)** | IME state |
+
+### 7. What Intune-WUO reads and writes
+
+| Location | Access |
+|---|---|
+| `PolicyManager\current\device\Update` and `...\System` | **Read** |
+| `Policies\Microsoft\Windows\WindowsUpdate`, `\AU`, `\DataCollection` | **Read** (never modified; policy-key fixes are not enabled) |
+| `WindowsUpdate\UpdatePolicy\Settings`, `Component Based Servicing\RebootPending`, `Auto Update\RebootRequired`, `Memory Management`, `WindowsAutopatch\ClientBroker` (not `ActionsFeedUri`), the Autopatch `ClientBroker.log` | **Read** |
+| `WindowsUpdate\UX\Settings` → the `Pause*` user-pause values | **Write (remove)**, only the pause fix, only when `FixPauses` = 1 and the pause was not set by policy |
+| Service start types for `wuauserv`, `UsoSvc`, `BITS`, `WaaSMedicSvc`, `wlidsvc`, `DiagTrack` | **Write**, only when the service is *Disabled* and `FixServices` = 1 |
+| `HKLM\SOFTWARE\IntuneWUO` (config) and `\State` (counters) | **Read** config / **write** state |
+| Task `\IntuneWUO\IntuneWUO-Fallback`, event log `IntuneWUO`, `%ProgramFiles%\IntuneWUO` | Created by the Win32 app; the task is re-registered if it goes missing |
+
+### 8. Inspecting a device yourself
+
+```powershell
+# What Intune delivered, and which enrollment won
+Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\PolicyManager\current\device\Update'
+
+# Any Group Policy / WSUS / local-policy leftovers
+Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate' -ErrorAction SilentlyContinue
+Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' -ErrorAction SilentlyContinue
+
+# Pause, reboot and Autopatch state (do not copy ActionsFeedUri anywhere)
+Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UpdatePolicy\Settings'
+Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\WindowsAutopatch\ClientBroker' | Select-Object Ring, DeviceReadinessTimestamp
+
+# Latest Autopatch readiness verdict
+Select-String -Path "$env:ProgramData\Microsoft\AutopatchClientBroker\Logs\ClientBroker.log" -Pattern 'Completed RunDeviceReadinessChecks' | Select-Object -Last 1
+
+# When did the device last sync with Intune?
+Get-ScheduledTask -TaskPath '\Microsoft\Windows\EnterpriseMgmt\*' | Get-ScheduledTaskInfo | Select-Object TaskName, LastRunTime
+
+# Full MDM diagnostics bundle (admin): shows every applied policy and its source
+mdmdiagnosticstool.exe -area "DeviceEnrollment;DeviceProvisioning;Autopilot" -zip C:\Temp\mdmdiag.zip
 ```
 
 ---
