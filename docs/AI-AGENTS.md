@@ -199,7 +199,19 @@ Prefer **delegated** permissions (the agent acts as you) over application permis
 
 The Intune health-script (Remediation) APIs are in the Graph **beta** endpoint, so they can change. Microsoft documents `deviceHealthScript` creation but marks the `assign` action's body as partly undocumented: check the first assignment in the admin center before you promote further.
 
-### What the agent will do, in order
+### The standalone package (recommended)
+
+The current recommended deployment is one Intune Remediations script package built from [`remediation/Detect-IntuneWUO.ps1`](../remediation/Detect-IntuneWUO.ps1) and [`remediation/Remediate-IntuneWUO.ps1`](../remediation/Remediate-IntuneWUO.ps1). Nothing else is installed on devices, and Intune is the switch: detection only reports, adding the remediation script turns fixes on. The MCP server's planning and request tools still produce the older Win32 app edition. For the standalone package, an agent with a Graph tool (for example the [Lokka](https://lokka.dev) MCP server) needs only `DeviceManagementScripts.ReadWrite.All`, `Group.Read.All` (or `Group.ReadWrite.All` to create the pilot group) and `DeviceManagementManagedDevices.Read.All`, and makes these calls on the beta endpoint, each after the human approves it:
+
+1. `GET /deviceManagement/deviceHealthScripts`, the pilot group, and its members (read first).
+2. `POST /deviceManagement/deviceHealthScripts`: `runAsAccount: "system"`, `runAs32Bit: false`, `enforceSignatureCheck: false`, and `detectionScriptContent` as the base64 of the file's exact bytes. No `remediationScriptContent` for detection only. Send the ~70 KB script from a file rather than through the chat.
+3. `POST /deviceManagement/deviceHealthScripts/{id}/assign` with one `groupAssignmentTarget` for the pilot group, `runRemediationScript: false` and a `deviceHealthScriptHourlySchedule` (1 hour while piloting, then 8). This replaces the whole assignment list.
+4. Read everything back, including a SHA-256 of the uploaded script compared with the file.
+5. Results: `GET /deviceManagement/deviceHealthScripts/{id}/deviceRunStates`; the status line is in `preRemediationDetectionScriptOutput`.
+
+The step-by-step version for people is in the README *Deployment guide*, and the skill's section 7 has the same calls for agents.
+
+### What the agent will do, in order (Win32 app edition)
 
 1. Ask what it needs and check prerequisites (licence, Autopatch, co-management, app control, access level).
 2. Show the phased plan (P0 prepare, P1 build, P2 app, P3 config packages, P4 remediation, P5 observe, P6 roll out by ring, P7 operate).

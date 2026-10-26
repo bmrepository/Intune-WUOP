@@ -1,14 +1,18 @@
 # Intune-WUO
 
-> Open-source Windows Update orchestration layer for Intune-managed Windows devices that use Windows Autopatch. It detects device-side problems that stop approved updates installing, fixes the safe ones, and as a last resort installs overdue approved quality updates. AI agents can plan and deploy it through an offline, read-only MCP server and a skill. Start with AGENTS.md.
+> Open-source Windows Update orchestration layer for Intune-managed Windows devices that use Windows Autopatch. It ships as one standard Intune Remediations package (two self-contained PowerShell scripts): detection reports device-side problems that stop approved updates installing, and the remediation fixes the safe ones and installs overdue approved quality updates. AI agents can plan and deploy it through an offline, read-only MCP server and a skill. Start with AGENTS.md.
 
 ## Start here (for AI agents)
 - [AGENTS.md](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/AGENTS.md): vendor-neutral rules and entry points
 - [AI agents guide](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/docs/AI-AGENTS.md): connect the MCP server to your client, connect to an Intune tenant safely, example prompts
 - [Deployment skill](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/skills/intune-wuo-deploy/SKILL.md): the workflow, rules and Graph facts in one file
 
+## The package
+- [Detection script](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/remediation/Detect-IntuneWUO.ps1): upload as the detection script (alone = report only)
+- [Remediation script](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/remediation/Remediate-IntuneWUO.ps1): add to the same package to turn on fixes
+
 ## Project documentation
-- [README](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/README.md): what it does, modes and switches, registry and CSP reference, deployment guide
+- [README](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/README.md): what it does, settings, registry and CSP reference, deployment guide
 - [Design](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/docs/DESIGN.md): components, finding catalogue, guardrails, fallback rules, event ids
 - [Findings catalogue (JSON)](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/docs/findings.json): every finding id with cause, tool action and admin action
 
@@ -18,4 +22,5 @@
 
 ## Optional
 - [Validation harness](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/tools/Invoke-WUOValidation.ps1): end-to-end check on a disposable test device
-- [Build script](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/build/Build-IntuneWUO.ps1): produces the Win32 package, Remediation scripts and the four config packages
+- [Script build](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/build/Build-RemediationScripts.ps1): regenerates the two scripts from the module
+- [Win32 edition build](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/build/Build-IntuneWUO.ps1): the optional Win32 app edition (app, Remediation scripts and four config packages)

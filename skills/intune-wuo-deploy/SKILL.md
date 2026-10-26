@@ -8,7 +8,12 @@ when_to_use: Examples - "deploy the Intune Windows Update orchestration project 
 
 Intune-WUO (https://github.com/bmrepository/Intune-WUOP) detects the device-side problems that stop Windows Autopatch-approved updates installing, fixes the safe ones, and as a last resort installs overdue **approved** quality updates. It never restarts a device, shows UI, changes update or Autopatch policy, installs drivers or feature updates, or changes VBS/CHPE.
 
-Modes (set per device group through one `IntuneWUO-Config-<Mode>` package; each device gets exactly one): `Off` (kill switch), `ReportOnly` (default), `Remediate`, `RemediateAndFallback`.
+**Recommended deployment: the standalone Remediations package.** One script package, `Intune-WUO`, built from `remediation/Detect-IntuneWUO.ps1` and `remediation/Remediate-IntuneWUO.ps1`. Nothing else is installed on devices. Intune is the switch:
+- detection script only = report only (the equivalent of `ReportOnly`)
+- detection + remediation script = fixes on, including installing overdue approved quality updates
+- unassign the package = off
+
+Settings are a block at the top of each script (keep both the same). Each device gets exactly one Intune-WUO package. The MCP planning tools below still describe the older **Win32 app edition** (modes `Off`, `ReportOnly`, `Remediate`, `RemediateAndFallback` set through one `IntuneWUO-Config-<Mode>` package per device); use them for status interpretation and findings, and follow the README *Deployment guide* (or section 7 here) for the standalone package.
 
 ## 1. Get the knowledge
 
@@ -75,10 +80,22 @@ Status lines start with `WUO|v1|`: `Compliant`, `NonCompliant` (with `F=` findin
 - **Rollback:** unassign the Remediation, set the Win32 app assignment to Uninstall. Intune-WUO changes no Intune or Autopatch policy, so nothing else needs reverting.
 - **Success:** at least 95% of in-scope devices on the latest approved quality update (or current hotpatch) within ring deadline + 7 days; Autopatch Not ready/alerted count falling; no blocker older than 14 days.
 
+## 7. Standalone package through Graph (beta)
+
+Show the human each request and wait for an explicit yes before sending it.
+
+1. Read first: `GET /deviceManagement/deviceHealthScripts` (no existing `Intune-WUO`), the pilot group id, and its members.
+2. Create: `POST /deviceManagement/deviceHealthScripts` with `displayName`, `description`, `publisher`, `runAsAccount: "system"`, `runAs32Bit: false`, `enforceSignatureCheck: false`, `roleScopeTagIds: ["0"]`, and `detectionScriptContent` = base64 of the file's exact bytes (UTF-8, no BOM). Leave `remediationScriptContent` out for detection only. The script is about 70 KB: send it from a file, not pasted through chat.
+3. Assign: `POST /deviceManagement/deviceHealthScripts/{id}/assign` with `deviceHealthScriptAssignments: [{ target: { "@odata.type": "#microsoft.graph.groupAssignmentTarget", groupId }, runRemediationScript: false, runSchedule: { "@odata.type": "#microsoft.graph.deviceHealthScriptHourlySchedule", interval: 1..23 } }]`. This replaces the whole assignment list.
+4. Verify: read back the script (compare a SHA-256 of the decoded content with the file) and `GET .../assignments`.
+5. Results: `GET .../deviceHealthScripts/{id}/deviceRunStates?$expand=managedDevice($select=deviceName)`; the status line is `preRemediationDetectionScriptOutput`. Devices pick up a new package within 8 hours, or when the Intune Management Extension restarts.
+6. Turn on fixes later: `PATCH` the script with `remediationScriptContent`, then re-assign with `runRemediationScript: true` (steps 1-5 have been run against a test tenant; this step has not yet).
+
 ## Facts that are easy to get wrong
 
 - Update ring and WUfB policy reach devices over the MDM channel (Policy CSP), **not** through the Intune Management Extension. The IME only delivers scripts, Win32 apps and Remediations.
-- Hourly Remediation schedules allow 1 to 23 hours; the project uses 8.
+- Hourly Remediation schedules allow 1 to 23 hours; use 1 while piloting and 8 afterwards.
+- The standalone detection script exits 1 on any Warning or Critical finding (so detection-only reports *With issues*), and its status line shows `Mode=Script`.
 - `Update/IgnoreWindowsUpdateGroupPolicies = 1` (Windows 11 24H2 with KB5101684, build 26100.8973+) is the clean fix for leftover Group Policy. Intune-WUO only reports GPO/WSUS conflicts and never deletes domain Group Policy values.
 - Hotpatch needs Windows 11 24H2+, VBS running, Arm64 needs CHPE disabled. Intune-WUO reports blockers only.
 - Known limits today: policy-key fixes are not active (no GPO-vs-local attribution), hotpatch enrollment is not read, and the fixes/fallback have been validated with mocks plus a harness (`tools/Invoke-WUOValidation.ps1`) that you should run on a test device. Say so honestly if the user asks what is proven.

@@ -36,7 +36,7 @@ export async function readRepoFile(rel, { source = process.env.WUO_SOURCE ?? 'au
 
 /** Document names exposed to agents. */
 export const DOCS = {
-  readme: { file: 'README.md', description: 'Project README: what it is, modes, registry reference, deployment guide.' },
+  readme: { file: 'README.md', description: 'Project README: what it is, settings, registry reference, deployment guide.' },
   design: { file: 'docs/DESIGN.md', description: 'Design: components, finding catalogue, guardrails, fallback rules, event ids.' },
   'ai-agents': { file: 'docs/AI-AGENTS.md', description: 'How AI agents connect to this project and to a tenant.' },
   agents: { file: 'AGENTS.md', description: 'Short, vendor-neutral instructions for AI agents.' },
@@ -46,16 +46,19 @@ export const DOCS = {
 
 /** README sections an agent can ask for by short name. */
 export const SECTIONS = {
-  architecture: 'Architecture',
+  architecture: 'What it does',
+  'quick-start': 'Quick start',
   'how-it-works': 'How a run works',
   'checks-and-fixes': 'What it checks and fixes',
   hotpatch: 'Hotpatch',
-  modes: 'Modes and switches',
+  modes: 'Settings',
+  settings: 'Settings',
   'registry-reference': 'Registry and CSP reference',
   prerequisites: 'Prerequisites',
   'deployment-guide': 'Deployment guide',
   operating: 'Operating it',
   security: 'Security model',
+  'win32-edition': 'Optional: the Win32 app edition',
   roadmap: 'Roadmap'
 };
 
