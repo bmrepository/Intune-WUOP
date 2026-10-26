@@ -187,7 +187,8 @@ function Invoke-WUOFallbackRun {
 
     $summary = [ordered]@{ Outcome = ''; Guardrails = @(); Candidates = @(); Installed = @(); Failed = @() }
 
-    if ($Config.Mode -ne 'RemediateAndFallback') { $summary.Outcome = 'Skipped'; return [pscustomobject]$summary }
+    $allowed = ($Config.Mode -eq 'RemediateAndFallback') -or ($Config.Mode -eq 'Remediate' -and $Config.InstallOverdueUpdates)
+    if (-not $allowed) { $summary.Outcome = 'Skipped'; return [pscustomobject]$summary }
 
     $blocked = @(Test-WUOFallbackGuardrail -State $State -Config $Config `
         -OnBattery ([bool](& $Backend.OnBattery)) -InstallerBusy ([bool](& $Backend.InstallerBusy)))

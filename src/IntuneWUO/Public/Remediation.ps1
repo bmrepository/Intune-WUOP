@@ -8,6 +8,8 @@ function Test-WUOFixEnabled {
         'Pauses'         { return [bool]$Config.FixPauses }
         'PolicyKeys'     { return [bool]$Config.FixPolicyKeys }
         'SyncAndCleanup' { return [bool]$Config.FixSyncAndCleanup }
+        'ResetStack'     { return [bool]$Config.FixResetStack }
+        'Updates'        { return ($Config.Mode -eq 'RemediateAndFallback') -or [bool]$Config.InstallOverdueUpdates }
         default          { return $false }
     }
 }
@@ -23,6 +25,7 @@ function Get-WUOFixActionName {
         'DISK_LOW'       { 'CleanupDisk' }
         'SCAN_STALE'     { 'ResetStack' }
         'FALLBACK_TASK_MISSING' { 'RegisterTask' }
+        'UPDATE_OVERDUE' { 'InstallUpdates' }
         default          { $null }
     }
 }

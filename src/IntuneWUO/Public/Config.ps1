@@ -22,6 +22,11 @@ function ConvertTo-WUOConfig {
         FixPauses           = $true
         FixPolicyKeys       = $true
         FixSyncAndCleanup   = $true
+        # Off by default: the reset wipes the Windows Update history list (installed updates stay installed).
+        FixResetStack       = $false
+        # Lets the Remediate mode install overdue approved quality updates (the standalone Remediations package
+        # turns it on; RemediateAndFallback always installs).
+        InstallOverdueUpdates = $false
         Warnings            = @()
     }
 
@@ -50,7 +55,7 @@ function ConvertTo-WUOConfig {
         else { $warnings.Add("Invalid $name '$($Raw[$name])'; using default $($cfg[$name])") }
     }
 
-    foreach ($name in 'FixServices', 'FixPauses', 'FixPolicyKeys', 'FixSyncAndCleanup') {
+    foreach ($name in 'FixServices', 'FixPauses', 'FixPolicyKeys', 'FixSyncAndCleanup', 'FixResetStack', 'InstallOverdueUpdates') {
         if (-not $Raw.ContainsKey($name)) { continue }
         $v = [string]$Raw[$name]
         if ($v -in '0', '1') { $cfg[$name] = ($v -eq '1') }

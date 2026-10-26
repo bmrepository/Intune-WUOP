@@ -24,7 +24,7 @@ Describe 'docs/findings.json (used by the MCP server and the AI-agent skill)' {
     It 'uses only valid severities and auto-fix categories, with every field filled in' {
         foreach ($f in $script:catalogue.findings) {
             $f.severity | Should -BeIn 'Critical', 'Warning', 'Info'
-            $f.autoFix | Should -BeIn 'None', 'Services', 'Pauses', 'SyncAndCleanup', 'PolicyKeys'
+            $f.autoFix | Should -BeIn 'None', 'Services', 'Pauses', 'SyncAndCleanup', 'PolicyKeys', 'ResetStack', 'Updates'
             foreach ($p in 'title', 'cause', 'toolAction', 'adminAction') { [string]$f.$p | Should -Not -BeNullOrEmpty }
         }
     }
@@ -35,6 +35,7 @@ Describe 'docs/findings.json (used by the MCP server and the AI-agent skill)' {
         $by['SYNC_STALE'].autoFix | Should -Be 'SyncAndCleanup'
         $by['PAUSE_QUALITY_USER'].autoFix | Should -Be 'Pauses'
         $by['POLICY_CONFLICT_NOAUTOUPDATE'].autoFix | Should -Be 'None'
-        $by['SCAN_STALE'].autoFix | Should -Be 'Services'
+        $by['SCAN_STALE'].autoFix | Should -Be 'ResetStack'
+        $by['UPDATE_OVERDUE'].autoFix | Should -Be 'Updates'
     }
 }

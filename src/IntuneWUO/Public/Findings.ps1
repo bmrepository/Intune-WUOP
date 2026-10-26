@@ -12,7 +12,7 @@ function New-WUOFinding {
         [Parameter(Mandatory)][ValidateSet('Info', 'Warning', 'Critical')][string]$Severity,
         [Parameter(Mandatory)][string]$Message,
         # Which Fix* switch would cover an automatic fix. 'None' means report-only.
-        [ValidateSet('None', 'Services', 'Pauses', 'PolicyKeys', 'SyncAndCleanup')][string]$AutoFix = 'None',
+        [ValidateSet('None', 'Services', 'Pauses', 'PolicyKeys', 'SyncAndCleanup', 'ResetStack', 'Updates')][string]$AutoFix = 'None',
         [string]$Source = ''
     )
     [pscustomobject]@{ Id = $Id; Severity = $Severity; Message = $Message; AutoFix = $AutoFix; Source = $Source }
@@ -99,8 +99,8 @@ function Get-WUOFinding {
 
     $scan = if ($State.Wua) { $State.Wua['LastSearchSuccess'] } else { $null }
     if ($scan -and $scan.Year -gt 2000 -and ($Now - $scan).TotalDays -gt $Config.ScanStaleDays) {
-        # AutoFix Services covers the update-stack reset (rate-limited by ResetCooldownDays).
-        $findings.Add((New-WUOFinding -Id 'SCAN_STALE' -Severity Warning -AutoFix Services `
+        # The fix is the update-stack reset (FixResetStack, rate-limited by ResetCooldownDays).
+        $findings.Add((New-WUOFinding -Id 'SCAN_STALE' -Severity Warning -AutoFix ResetStack `
             -Message "No successful Windows Update scan in $($Config.ScanStaleDays) days."))
     }
 
@@ -143,6 +143,21 @@ function Get-WUOFinding {
         if (-not (Get-WUOStateValue $task 'Present') -or -not (Get-WUOStateValue $task 'Enabled')) {
             $findings.Add((New-WUOFinding -Id 'FALLBACK_TASK_MISSING' -Severity Warning -AutoFix Services `
                 -Message 'The fallback scheduled task is missing or disabled.'))
+        }
+    }
+
+    # Only evaluated when the offered updates were collected (Get-WUOState -IncludeOfferedUpdates).
+    if ($State.Contains('OfferedUpdates') -and $null -ne $State['OfferedUpdates']) {
+        $deadline = 7
+        if ($null -ne $pm['ConfigureDeadlineForQualityUpdates']) { $deadline = [int]$pm['ConfigureDeadlineForQualityUpdates'] }
+        $firstSeen = if ($State.Contains('UpdateFirstSeen') -and $State['UpdateFirstSeen']) { $State['UpdateFirstSeen'] } else { @{} }
+        $attempts = if ($State.Contains('UpdateAttempts') -and $State['UpdateAttempts']) { $State['UpdateAttempts'] } else { @{} }
+        $overdue = @(Select-WUOFallbackCandidate -Updates @($State['OfferedUpdates']) -Config $Config -DeadlineDays $deadline `
+            -AttemptCounts $attempts -FirstSeen $firstSeen -Now $Now | Where-Object Eligible)
+        if ($overdue.Count -gt 0) {
+            $titles = @($overdue | ForEach-Object { if ($_.Update.KB) { "KB$($_.Update.KB)" } else { $_.Update.Title } }) -join ', '
+            $findings.Add((New-WUOFinding -Id 'UPDATE_OVERDUE' -Severity Warning -AutoFix Updates `
+                -Message "Approved quality update(s) offered for more than $($deadline + $Config.FallbackGraceDays) days and not installed: $titles."))
         }
     }
 

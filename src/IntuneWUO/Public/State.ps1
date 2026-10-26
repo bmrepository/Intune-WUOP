@@ -17,9 +17,14 @@ function Get-WUOState {
     .SYNOPSIS
         Collects the device state used by Get-WUOFinding. Read-only; changes nothing.
         Every section is collected independently so one failure does not hide the rest.
+        -IncludeOfferedUpdates also runs a Windows Update scan (default service, can take minutes) and records
+        when each offered update was first seen in the tool-owned State key; that is its only write.
     #>
     [CmdletBinding()]
-    param()
+    param(
+        [switch]$IncludeOfferedUpdates,
+        [string]$StatePath = 'HKLM:\SOFTWARE\IntuneWUO\State'
+    )
 
     $state = [ordered]@{
         CollectedAt      = Get-Date
@@ -119,6 +124,27 @@ function Get-WUOState {
 
     try { $state.FallbackTask = Get-WUOFallbackTaskStatus }
     catch { $errors['FallbackTask'] = $_.Exception.Message; $state.FallbackTask = $null }
+
+    if ($IncludeOfferedUpdates) {
+        try {
+            $offered = @(Get-WUOOfferedUpdate)
+            $firstSeen = @{}; $attempts = @{}
+            foreach ($u in $offered) {
+                $seen = Get-WUOStoreDate -Name "FirstSeen_$($u.UpdateId)" -StatePath $StatePath
+                if (-not $seen) {
+                    $seen = Get-Date
+                    try { Set-WUOStoreValue -Name "FirstSeen_$($u.UpdateId)" -Value $seen -StatePath $StatePath } catch { }
+                }
+                $firstSeen[$u.UpdateId] = $seen
+                $n = Get-WUOStoreValue -Name "Attempts_$($u.UpdateId)" -StatePath $StatePath
+                if ($n) { $attempts[$u.UpdateId] = [int]$n }
+            }
+            $state.OfferedUpdates = $offered
+            $state.UpdateFirstSeen = $firstSeen
+            $state.UpdateAttempts = $attempts
+        }
+        catch { $errors['OfferedUpdates'] = $_.Exception.Message; $state.OfferedUpdates = $null }
+    }
 
     # $null means "not determined": hotpatch checks are skipped until enrollment evidence is read (see design doc).
     $state.Hotpatch = @{

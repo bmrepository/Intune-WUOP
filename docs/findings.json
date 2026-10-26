@@ -3,7 +3,9 @@
   "description": "Machine-readable catalogue of every Intune-WUO finding id. Source of truth for the MCP server and the AI-agent skill. Kept in sync with src/IntuneWUO/Public/Events.ps1 by a Pester test.",
   "autoFixCategories": {
     "None": "Report only. Intune-WUO never changes this.",
-    "Services": "Controlled by the FixServices switch (service repair, update-stack reset, task re-registration).",
+    "Services": "Controlled by the FixServices switch (service repair, task re-registration).",
+    "ResetStack": "Controlled by the FixResetStack switch (off by default: the reset wipes the Windows Update history list).",
+    "Updates": "Controlled by the InstallOverdueUpdates switch (on in the standalone Remediations package) or by Mode RemediateAndFallback.",
     "Pauses": "Controlled by the FixPauses switch.",
     "SyncAndCleanup": "Controlled by the FixSyncAndCleanup switch.",
     "PolicyKeys": "Controlled by the FixPolicyKeys switch. Not active yet: policy values are not attributed to domain GPO vs local policy, so nothing is removed automatically."
@@ -156,10 +158,10 @@
     {
       "id": "SCAN_STALE",
       "severity": "Warning",
-      "autoFix": "Services",
+      "autoFix": "ResetStack",
       "title": "No successful Windows Update scan within ScanStaleDays",
       "cause": "The Windows Update stack is probably broken or blocked.",
-      "toolAction": "Resets the update components (renames SoftwareDistribution and catroot2), at most once per ResetCooldownDays and never during an install or with a restart pending. SIDE EFFECT: this also resets the Windows Update history list shown in Settings (installed updates stay installed). Only the newest backup folder is kept.",
+      "toolAction": "Resets the update components (renames SoftwareDistribution and catroot2), at most once per ResetCooldownDays and never during an install or with a restart pending. SIDE EFFECT: this also resets the Windows Update history list shown in Settings (installed updates stay installed). Only the newest backup folder is kept. Runs only when FixResetStack = 1 (off by default).",
       "adminAction": "If scans still fail after a reset, check proxy/TLS inspection and WSUS leftovers."
     },
     {
@@ -251,6 +253,15 @@
       "cause": "HotPatchRestrictions is not 1 on an Arm64 hotpatch-enrolled device.",
       "toolAction": "Reports only. Never changes CHPE.",
       "adminAction": "Deploy the Intune DisableCHPE policy (System/DisableCHPE) and restart. Note that this can affect 32-bit x86 apps on Arm."
+    },
+    {
+      "id": "UPDATE_OVERDUE",
+      "severity": "Warning",
+      "autoFix": "Updates",
+      "title": "An approved quality update is overdue",
+      "cause": "Windows Update has offered a quality or security update (so Autopatch approved it) for longer than the ring deadline (ConfigureDeadlineForQualityUpdates, default 7) plus FallbackGraceDays, and it is still not installed.",
+      "toolAction": "Installs exactly the overdue offered updates through the native Windows Update API (default service, no drivers, no feature updates), never restarts, and stops after FallbackMaxAttempts failures. Skipped when a restart is pending, disk is low, an install is running, the device is on battery or native maintenance windows are configured.",
+      "adminAction": "If it keeps failing, read the HResult in the IntuneWUO log and Get-WindowsUpdateLog; check disk space, proxy/TLS inspection and the Autopatch release status."
     }
   ]
 }
