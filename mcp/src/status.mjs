@@ -1,7 +1,8 @@
 // Parses and explains the one-line status that Intune-WUO prints for Intune Remediations.
 // Formats (see docs/DESIGN.md, "Reporting"):
 //   WUO|v1|<Compliant|NonCompliant|Disabled>|Mode=<m>|Build=<n>[|Ring=<r>][|F=<id>,<id>[+N]]
-//   WUO|v1|Remediated|Fixed=<ids>|Failed=<ids>|Suppressed=<ids>
+//   WUO|v1|Remediated|Fixed=<ids>|Failed=<ids>|Suppressed=<ids>[|AdminAction=<ids>]
+//   (the standalone package reports Mode=Script)
 //   WUO|v1|NoAction|Mode=<m>      WUO|v1|NoAction|Busy      WUO|v1|Error|<message>
 import { findFinding } from './catalogue.mjs';
 
@@ -32,6 +33,7 @@ export function parseStatusLine(line) {
   out.fixed = splitIds(out.fields.Fixed);
   out.failed = splitIds(out.fields.Failed);
   out.suppressed = splitIds(out.fields.Suppressed);
+  out.adminAction = splitIds(out.fields.AdminAction);
   out.mode = out.fields.Mode;
   out.build = out.fields.Build ? Number(out.fields.Build) : undefined;
   out.ring = out.fields.Ring;
@@ -65,7 +67,10 @@ export function interpretStatus(parsed, catalogue) {
     const suppressed = parsed.suppressed.map(explain);
     if (failed.length) next.push('Fixes that failed need a person: see each finding\'s adminAction. WaaSMedicSvc is protected by Windows and is expected to fail.');
     if (suppressed.length) next.push('Suppressed fixes were being undone by something else (policy, baseline or another tool). Find that source; Intune-WUO stops re-applying after FixMaxRepeats.');
-    return { summary: { ...summary, fixed: parsed.fixed.length, failed: parsed.failed.length, suppressed: parsed.suppressed.length }, explanation: `Remediation applied ${fixed.length} fix(es); ${failed.length} failed; ${suppressed.length} suppressed.`, fixed, failed, suppressed, findings: [], nextSteps: next };
+    const adminAction = (parsed.adminAction ?? []).map(explain);
+    if (adminAction.length) next.push(`Not fixable by the tool, needs an administrator: ${adminAction.map((f) => f.id).join(', ')}. See each finding's adminAction.`);
+    if (parsed.fixed.includes('UPDATE_OVERDUE')) next.push('An overdue approved update was installed without a restart. The restart follows the ring deadline and grace period; the device reports Compliant after it.');
+    return { summary: { ...summary, fixed: parsed.fixed.length, failed: parsed.failed.length, suppressed: parsed.suppressed.length, adminAction: adminAction.length }, explanation: `Remediation applied ${fixed.length} fix(es); ${failed.length} failed; ${suppressed.length} suppressed; ${adminAction.length} need an administrator.`, fixed, failed, suppressed, adminAction, findings: [], nextSteps: next };
   }
 
   const findings = parsed.findings.map(explain);
@@ -81,6 +86,7 @@ export function interpretStatus(parsed, catalogue) {
 
   if (critical.length) next.push(`Fix the ${critical.length} Critical finding(s) first: ${critical.map((f) => f.id).join(', ')}.`);
   if (fixable.length && parsed.mode === 'ReportOnly') next.push(`Mode is ReportOnly, so nothing was changed. ${fixable.length} finding(s) are auto-fixable (${fixable.map((f) => f.id).join(', ')}); once a ring has had a clean ReportOnly cycle, move it to Remediate.`);
+  if (fixable.length && parsed.mode === 'Script') next.push(`Standalone package. ${fixable.length} finding(s) are auto-fixable (${fixable.map((f) => f.id).join(', ')}). If the package has the remediation script and fixes are on for this device's assignment, Intune ran it right after this detection: see the remediation status and post-remediation output. If the package is detection only, nothing was changed; add Remediate-IntuneWUO.ps1 to fix them (wuo_package_requests, action enable-fixes).`);
   if (fixable.length && (parsed.mode === 'Remediate' || parsed.mode === 'RemediateAndFallback')) next.push('These are auto-fixable; the next Remediation run (every 8 hours) will apply them. If they persist, check for repeated-fix suppression.');
   const reportOnly = findings.filter((f) => f.autoFix === 'None' && f.severity !== 'Info');
   if (reportOnly.length) next.push(`Report-only findings need an administrator: ${reportOnly.map((f) => f.id).join(', ')}.`);

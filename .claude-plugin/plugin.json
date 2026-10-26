@@ -1,7 +1,7 @@
 {
   "name": "intune-wuo",
   "description": "Plan, deploy and operate Intune-WUO (Windows Update orchestration for Intune and Windows Autopatch): an offline read-only MCP server plus a deployment skill.",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "author": { "name": "bmrepository" },
   "homepage": "https://github.com/bmrepository/Intune-WUOP",
   "repository": "https://github.com/bmrepository/Intune-WUOP",

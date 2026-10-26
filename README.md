@@ -1,11 +1,25 @@
 # Intune-WUO: Intune Windows Update Orchestration Platform
 
+[![CI](https://github.com/bmrepository/Intune-WUOP/actions/workflows/ci.yml/badge.svg)](https://github.com/bmrepository/Intune-WUOP/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Version](https://img.shields.io/badge/version-1.0.0-informational)
+![Windows PowerShell 5.1](https://img.shields.io/badge/Windows%20PowerShell-5.1-5391FE)
+![Intune Remediations](https://img.shields.io/badge/Intune-Remediations-0078D4)
+![MCP server](https://img.shields.io/badge/AI%20agents-MCP%20server%20%2B%20skill-6E40C9)
+
 **A self-healing layer for Windows Update on Intune-managed devices, delivered as one standard Intune Remediations package.** Intune-WUO works alongside [Windows Autopatch](https://learn.microsoft.com/windows/deployment/windows-autopatch/overview/windows-autopatch-overview). It finds the device-side problems that stop Autopatch-approved updates from installing, fixes the safe ones automatically, and installs an approved quality update that is overdue. Results go back to Intune and to local logs.
 
 **Two files, nothing to install:** [`remediation/Detect-IntuneWUO.ps1`](remediation/Detect-IntuneWUO.ps1) and [`remediation/Remediate-IntuneWUO.ps1`](remediation/Remediate-IntuneWUO.ps1). Upload them as a custom script package in **Devices › Scripts and remediations**. That's the whole deployment.
 
-> [!IMPORTANT]
-> **Project status: v1.0, first release of the standalone package.** The engine is covered by 120 Pester and 39 Node tests, and its fixes passed an end-to-end validation run on a Windows 11 test device enrolled in Autopatch. The detection script has run through Intune as SYSTEM on two Windows 11 test devices and reported correctly, including an overdue approved update. **Not yet proven in the field:** an overdue-update install by the remediation script through Intune, hotpatch enrollment detection, and hybrid-joined or co-managed devices. Roll out as the deployment guide says: detection only on a pilot group first, then add the remediation script.
+<table>
+<tr><td><b>Who it's for</b></td><td>Intune and Endpoint administrators who run Windows Autopatch (or Windows Update for Business rings) on Windows 11 Enterprise devices and want the stragglers fixed without tickets.</td></tr>
+<tr><td><b>What you need</b></td><td>Intune Remediations (Windows Enterprise E3/E5 or equivalent licence). Nothing installed on devices, no server, no agent, no cloud service.</td></tr>
+<tr><td><b>Time to first results</b></td><td>About 10 minutes to create the package; results within 8 hours (or immediately with <i>Run remediation</i>).</td></tr>
+<tr><td><b>Risk</b></td><td>Starts as report only. Never restarts devices, never shows UI, never changes Intune or Autopatch policy, never installs feature updates or drivers. Unassign the package to switch it off.</td></tr>
+</table>
+
+> [!NOTE]
+> **Status: v1.0.** 120 Pester and 46 Node tests. The engine's fixes passed an end-to-end validation on a Windows 11 device enrolled in Autopatch. Through Intune, the detection script has run as SYSTEM on two Windows 11 test devices and reported correctly, including an overdue approved update that was then resolved (detection went back to `Compliant`). **Not yet proven in the field:** an overdue-update install performed by the remediation script itself through Intune, hotpatch enrollment detection, and hybrid-joined or co-managed devices. Roll out as the [deployment guide](#deployment-guide) says: detection only on a pilot group first.
 
 ---
 
@@ -14,6 +28,7 @@
 - [Why Intune-WUO exists](#why-intune-wuo-exists)
 - [What it does](#what-it-does)
 - [Quick start](#quick-start)
+- [FAQ](#faq)
 - [Deploy with an AI agent](#deploy-with-an-ai-agent)
 - [How it fits with Windows Autopatch](#how-it-fits-with-windows-autopatch)
 - [How a run works](#how-a-run-works)
@@ -87,6 +102,66 @@ Intune-WUO is a standard Intune Remediations script package:
 4. Assign it to a **pilot device group**, schedule **Hourly**, every 1–8 hours. Never assign it to all devices first.
 5. Watch **Device status** (add the *Pre-remediation detection output* column). When you're happy with what it reports, edit the package and upload the remediation script.
 
+Prefer to let an AI assistant do it? See [Deploy with an AI agent](#deploy-with-an-ai-agent).
+
+---
+
+## FAQ
+
+<details>
+<summary><b>Will it upgrade my devices to a new Windows version (for example 24H2 → 25H2)?</b></summary>
+
+No. Feature updates belong to your Autopatch (or Intune) feature update policy, which also handles safeguard holds and timing. Intune-WUO only installs overdue **quality** (monthly security) updates, and only ones Windows Update already offers the device. It reports the device-side problems that would block a feature update, such as a disabled service, low disk or diagnostic data set too low.
+</details>
+
+<details>
+<summary><b>Will it restart devices or interrupt users?</b></summary>
+
+Never. It has no UI and never restarts. When an install needs a restart, the restart follows your ring's deadline and grace period, exactly as it would without Intune-WUO.
+</details>
+
+<details>
+<summary><b>Does it conflict with Windows Autopatch?</b></summary>
+
+No. Autopatch decides what to install and when. Intune-WUO never approves content, changes rings, deferrals, deadlines or Autopatch policy. It only removes what stops the device carrying out Autopatch's decision, and it installs only what Windows Update offers the device (which is what Autopatch approved).
+</details>
+
+<details>
+<summary><b>What does it change on a device?</b></summary>
+
+Only with the remediation script in the package, and only within its settings: it re-enables disabled update services, clears a pause a user set (never a policy pause), starts an Intune sync, cleans up disk space, and installs overdue approved quality updates. The update-stack reset is off by default. Group Policy, WSUS, ConfigMgr, VBS and Autopatch settings are **reported, never changed**. The full list is in [What Intune-WUO reads and writes](#7-what-intune-wuo-reads-and-writes).
+</details>
+
+<details>
+<summary><b>Do I need Windows Autopatch?</b></summary>
+
+It's recommended, not required. Without Autopatch, Intune-WUO still works with Intune update rings (Windows Update for Business): it reads the ring's deferral and deadline from the device. The Autopatch readiness and ring checks are simply skipped.
+</details>
+
+<details>
+<summary><b>Microsoft 365 Business Premium?</b></summary>
+
+Business Premium includes Autopatch but not **Remediations**, which Intune-WUO runs on. You need Windows Enterprise E3/E5 (or Microsoft 365 E3/E5/F3, A3/A5, or Windows VDA).
+</details>
+
+<details>
+<summary><b>Does any data leave the device?</b></summary>
+
+No. The scripts send nothing anywhere. Results go to the Intune Remediations report (through the Intune Management Extension, like any Remediation), to a local log folder and to a local event log.
+</details>
+
+<details>
+<summary><b>How do I stop it?</b></summary>
+
+Remove the remediation script (or turn fixes off for the group) to go back to report only. Unassign the package to stop it completely. Nothing needs to be rolled back: Intune-WUO installs nothing and changes no Intune or Autopatch policy.
+</details>
+
+<details>
+<summary><b>Co-managed with ConfigMgr? Leftover WSUS or Group Policy?</b></summary>
+
+Intune-WUO detects and names them: ConfigMgr client, WSUS server settings, DualScan, and the Group Policy values Autopatch flags. It does not delete them, because domain Group Policy would put them back. The clean fixes are tenant-side: move the *Windows Update policies* co-management workload to Intune, and deploy `Update/IgnoreWindowsUpdateGroupPolicies = 1` on Windows 11 24H2 (build 26100.8973) and later.
+</details>
+
 ---
 
 ## Deploy with an AI agent
@@ -103,9 +178,11 @@ claude mcp add intune-wuo -- npx -y github:bmrepository/Intune-WUOP
 
 Then ask: *"Use the Intune-WUO MCP server to help me deploy Intune-WUO to my tenant. My devices are in Windows Autopatch and I want a pilot group first."*
 
+The agent checks your prerequisites, shows you a phased plan, and prepares each tenant change for you to approve: create the package (detection only, pilot group), read the results, turn on fixes for the pilot, then roll out ring by ring. It can also explain any device's status line.
+
 | | |
 |---|---|
-| **MCP server** | `npx -y github:bmrepository/Intune-WUOP`: prerequisites check, phased plan, Microsoft Graph request bodies, validation checklists, and a status-line interpreter. **Offline and read-only: it never contacts your tenant and holds no credentials.** |
+| **MCP server** | `npx -y github:bmrepository/Intune-WUOP`: prerequisites check, phased plan, ready-to-send Microsoft Graph requests for the package (`wuo_package_requests`, built from the real scripts, with your settings applied), validation checklists, and a status-line interpreter. **Offline and read-only: it never contacts your tenant and holds no credentials.** |
 | **Skill** | [`skills/intune-wuo-deploy/SKILL.md`](skills/intune-wuo-deploy/SKILL.md): the workflow, hard rules and Graph facts in one file |
 | **Any other agent** | Point it at [`AGENTS.md`](AGENTS.md) and [`llms.txt`](llms.txt), or paste: *"Read https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/AGENTS.md and help me deploy Intune-WUO."* |
 | **Remote clients (ChatGPT, Grok)** | `node mcp/server.mjs --http` behind HTTPS. See the guide. |
@@ -413,7 +490,7 @@ mdmdiagnosticstool.exe -area "DeviceEnrollment;DeviceProvisioning;Autopilot" -zi
 ### Step 1: Prepare the tenant
 
 1. **Record a baseline.** Export the Autopatch quality-update and *Autopatch management status* reports, and note the count of *Not ready* and alerted devices. Success is measured against these.
-2. **Create a pilot device group**, for example `SG-IntuneWUO-Pilot` with assigned membership, holding 10–20 IT devices. Reuse your **Autopatch ring groups** (Test, First, Fast, Broad) for the later rollout, and keep an exclusion group for servers, kiosks, shared devices, multi-session/AVD, Windows 365 and LTSC.
+2. **Create a pilot device group**, for example `SG-IntuneWUO-Pilot` with assigned membership, holding 10–20 IT devices. Reuse your **Autopatch ring groups** (an Autopatch group's Test ring, its middle rings, and Last) for the later rollout, and keep an exclusion group for servers, kiosks, shared devices, multi-session/AVD, Windows 365 and LTSC.
 3. **Turn on the recommended settings** above: the Client Broker, `IgnoreWindowsUpdateGroupPolicies`, and diagnostic data at Required.
 
 ### Step 2: Create the package (detection only)
@@ -447,14 +524,17 @@ WUO|v1|NonCompliant|Mode=Script|Build=26100|Ring=Test|F=SVC_DISABLED_wuauserv,PA
 
 Edit the package, upload `remediation/Remediate-IntuneWUO.ps1` as the remediation script, and save. From the next run, devices with a fixable issue are fixed and detection runs again. Intune then shows *Issue fixed* or the issue that remains (usually a report-only finding that needs an admin).
 
+> [!TIP]
+> **Check that the remediation actually runs.** After the next run, the device's *Remediation status* should change from *Not run* / *Skipped*. Whether the remediation runs is stored **per assignment** (`runRemediationScript` in Graph). In our test tenant, an existing assignment to the built-in *All devices* target kept remediation off after the remediation script was added, and Graph read back `false` even after it was set to `true`. If yours stays skipped, remove the assignment and add it again, then check the status once more.
+
 ### Step 5: Roll out
 
-| Stage | Groups | Package | Move on when |
+| Stage | Groups | Remediation for the group | Move on when |
 |---|---|---|---|
-| 1. Pilot | Pilot group | Detection only → **with remediation** | 1–2 Patch Tuesday cycles with no fix-related incidents |
-| 2. Rings | Autopatch Test → First → Fast → Broad, one cycle apart | With remediation | Each ring has a clean cycle |
+| 1. Pilot | Pilot group | Off (report only) → **on** | 1–2 Patch Tuesday cycles with no fix-related incidents |
+| 2. Rings | Autopatch rings in order (Test, the middle rings, then Last), one cycle apart | Off for one cycle, then **on** | Each ring has a clean cycle |
 
-To pilot fixes on fewer devices than you report on, create a second package (`Intune-WUO-Remediate`, both scripts) for a smaller group and keep the detection-only package on the rest. Don't assign both packages to the same device.
+Use **one package** for every device. Because `runRemediationScript` is set per assignment, each group can be report-only or fixing within the same package. With an AI agent or Graph this is the `add-groups` / `enable-fixes` step of `wuo_package_requests`. Once you're past the pilot, change the schedule from every hour to every 8 hours.
 
 ### Step 6: Verify on a device
 
@@ -503,7 +583,7 @@ The Intune Management Extension's own record of each run is in `...\IntuneManage
 
 ### Stop or remove
 
-- **Stop fixes, keep reporting:** edit the package and remove the remediation script.
+- **Stop fixes, keep reporting:** edit the package and remove the remediation script, or turn remediation off for the affected group's assignment (`runRemediationScript: false`).
 - **Stop everything:** unassign or delete the package.
 - **Nothing to revert:** Intune-WUO never changes Intune or Autopatch policy. On a device, `HKLM\SOFTWARE\IntuneWUO`, the `IntuneWUO` event log and the log folder can be deleted.
 
@@ -606,12 +686,17 @@ Results are written to `local\validation\<host>-<timestamp>.md` and `.json`. Tha
 - [x] First detection results through Intune on two test devices: one compliant, one correctly reporting an overdue approved update
 - [x] Overdue-update age includes the ring's quality deferral, so rings that defer are not flagged early
 - [x] Remediation script added to the package in the test tenant
-- [ ] A real overdue-update install by the remediation script through Intune
+- [x] MCP server and skill target the standalone package (`wuo_package_requests`: create, enable fixes, add groups, disable fixes, update scripts, remove)
+- [ ] A real overdue-update install by the remediation script through Intune (in the first test the device was brought up to date by Autopatch first)
+- [ ] Find out why `runRemediationScript` reads back `false` on an All devices assignment
 - [ ] Validation on a hybrid-joined or co-managed device
+- [ ] Validation harness (`tools/Invoke-WUOValidation.ps1`) for the standalone package (it drives the Win32 edition today)
 - [ ] Tiered stack reset that preserves the Windows Update history (clear `SoftwareDistribution\Download` first; full rename only if scans stay stale)
 - [ ] Attribute policy values to domain GPO vs local policy (would allow removing local leftovers; today policy findings are report-only)
 - [ ] Hotpatch enrollment detection (hotpatch findings stay skipped until then)
-- [ ] Update the MCP server, skill and validation harness to the standalone package (they still describe the Win32 edition)
+- [ ] Show the KB number of an overdue update in the Intune status line (today it is in the event log and the JSON log)
+
+Contributions are welcome: open an issue or a pull request. Run both test suites (below) before you submit.
 
 ## License
 

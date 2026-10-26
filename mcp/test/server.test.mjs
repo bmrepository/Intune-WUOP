@@ -13,7 +13,7 @@ const serverPath = path.resolve(here, '..', 'server.mjs');
 const EXPECTED_TOOLS = [
   'wuo_overview', 'wuo_get_doc', 'wuo_check_prerequisites', 'wuo_plan_deployment', 'wuo_generate_graph_requests',
   'wuo_generate_mode_change', 'wuo_win32_app_reference', 'wuo_validation_checklist', 'wuo_interpret_status',
-  'wuo_explain_finding', 'wuo_list_findings'
+  'wuo_explain_finding', 'wuo_list_findings', 'wuo_package_requests'
 ];
 
 async function exercise(client) {

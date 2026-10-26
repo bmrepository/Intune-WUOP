@@ -2,6 +2,21 @@
 const IME_LOG = 'C:\\ProgramData\\Microsoft\\IntuneManagementExtension\\Logs\\IntuneWUO\\IntuneWUO.jsonl';
 
 export const PHASES = {
+  // Standalone Remediations package (recommended edition)
+  detect: [
+    { check: 'Detection output reaches Intune', where: 'Intune admin center', command: 'Devices > Scripts and remediations > Intune-WUO > Device status > Pre-remediation detection output', expected: 'Starts with WUO|v1| and shows Mode=Script. Paste it into wuo_interpret_status.' },
+    { check: 'Detection ran on the device', where: 'device (elevated PowerShell)', command: `Get-Content '${IME_LOG}' -Tail 5`, expected: "JSON lines from component Detect, 'Detection <version> complete'; no Error entries." },
+    { check: 'Event log entries', where: 'device', command: "Get-WinEvent -LogName IntuneWUO -MaxEvents 10 | Select-Object TimeCreated, Id, Message", expected: 'A run-complete event per run, plus one warning per Warning/Critical finding.' },
+    { check: 'Nothing was changed', where: 'device', command: "Get-Service wuauserv, UsoSvc, BITS, wlidsvc | Select-Object Name, StartType", expected: 'Same start types as before (detection only changes nothing; its only write is first-seen dates under HKLM\\SOFTWARE\\IntuneWUO\\State).' }
+  ],
+  fix: [
+    { check: 'Remediation is on for the assignment', where: 'Intune admin center', command: 'Intune-WUO > Properties > Assignments', expected: 'The group shows the remediation script as on. (Graph has been seen to read back runRemediationScript: false; trust the admin center and the device status.)' },
+    { check: 'Remediation result in Intune', where: 'Intune admin center', command: 'Device status > Remediation status, Pre- and Post-remediation detection output', expected: 'Remediation status Issue fixed or Failed; the remediation output reads WUO|v1|Remediated|Fixed=...|Failed=...|Suppressed=...' },
+    { check: 'Fixes and installs are logged', where: 'device', command: `Select-String -Path '${IME_LOG}' -Pattern 'Remediate' | Select-Object -Last 10`, expected: 'Fixed / Failed / Suppressed entries with finding ids; "Update install: <outcome>" when an overdue update was handled.' },
+    { check: 'Overdue-update install events', where: 'device', command: 'Get-WinEvent -FilterHashtable @{ LogName = "IntuneWUO"; Id = 4001,4002,4003 } -MaxEvents 10 -ErrorAction SilentlyContinue', expected: '4001 = installed (no restart: it follows the ring deadline), 4002 = failed with HResult, 4003 = blocked by a guardrail (restart pending, low disk, on battery, install running, maintenance window).' },
+    { check: 'Fix history', where: 'device', command: "Get-ItemProperty 'HKLM:\\SOFTWARE\\IntuneWUO\\State' -ErrorAction SilentlyContinue", expected: 'FixCount_* and Attempts_* stay low; a fix reaching FixMaxRepeats is suppressed because something keeps undoing it.' }
+  ],
+  // Win32 app edition
   install: [
     { check: 'Files installed with the expected version', where: 'device (elevated PowerShell)', command: "Get-Content \"$env:ProgramFiles\\IntuneWUO\\version.txt\"", expected: 'The version you built.' },
     { check: 'Fallback task registered as SYSTEM', where: 'device', command: "Get-ScheduledTask -TaskPath '\\IntuneWUO\\' | Select-Object TaskName, State; (Get-ScheduledTask -TaskPath '\\IntuneWUO\\').Principal.UserId", expected: 'IntuneWUO-Fallback, State Ready, UserId SYSTEM.' },

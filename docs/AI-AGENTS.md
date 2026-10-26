@@ -39,11 +39,11 @@ Use ChatGPT, Claude, Grok, Gemini, Copilot or any agent that supports MCP (or ca
 
    > Use the Intune-WUO MCP server to help me deploy Intune-WUO to my tenant. I have Windows Enterprise E3, my devices are in Windows Autopatch, and I want to start with a pilot group.
 
-   The agent calls `wuo_overview`, asks only what it needs, checks prerequisites, and walks you through the plan phase by phase. It will show you every tenant change and wait for your yes.
+   The agent calls `wuo_overview`, asks only what it needs, checks prerequisites, and walks you through the plan phase by phase: create the `Intune-WUO` package with the detection script for a pilot group, read the results, turn on fixes for the pilot, then roll out ring by ring. It will show you every tenant change and wait for your yes.
 
 **No MCP in your client?** Paste this instead: *"Read https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/AGENTS.md and https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/docs/AI-AGENTS.md, then help me deploy Intune-WUO following the rules in them."*
 
-> **Supply-chain note.** `npx github:...` runs code from the repository's default branch. To pin a release, use a tag: `npx -y github:bmrepository/Intune-WUOP#v0.1.0`. You can also `git clone`, review the `mcp/` folder (about 1,000 lines, no network calls except reading documents), run `npm install`, and start it with `node mcp/server.mjs`.
+> **Supply-chain note.** `npx github:...` runs code from the repository's default branch. To pin a release, use a tag: `npx -y github:bmrepository/Intune-WUOP#v1.0.0`. You can also `git clone`, review the `mcp/` folder (about 1,000 lines, no network calls except reading documents), run `npm install`, and start it with `node mcp/server.mjs`.
 
 ## Connect your client
 
@@ -184,10 +184,10 @@ The executor shows each request with script contents summarised (never dumped), 
 
 | Permission | Why | Needed? |
 |---|---|---|
-| `DeviceManagementScripts.ReadWrite.All` | Create and assign the Remediations (the four config packages and the Detect/Remediate package) | Yes, for writes |
-| `Group.Read.All` | Resolve the pilot, ring and excluded groups | Yes |
-| `DeviceManagementManagedDevices.Read.All` | Read device status | Optional |
-| `DeviceManagementApps.ReadWrite.All` | Only if the agent also creates the Win32 app | Optional; the encrypted `.intunewin` upload is not covered by this server, so use the admin center or a Win32 upload tool |
+| `DeviceManagementScripts.ReadWrite.All` | Create, update and assign the `Intune-WUO` package (Win32 edition: the config packages and the Detect/Remediate package) | Yes, for writes |
+| `Group.Read.All` | Resolve the pilot, ring and excluded groups (`Group.ReadWrite.All` only if the agent should create the pilot group) | Yes |
+| `DeviceManagementManagedDevices.Read.All` | Read device status and results | Recommended |
+| `DeviceManagementApps.ReadWrite.All` | Win32 edition only, if the agent also creates the Win32 app | Optional; the encrypted `.intunewin` upload is not covered by this server, so use the admin center or a Win32 upload tool |
 
 Prefer **delegated** permissions (the agent acts as you) over application permissions. If you must use an app registration:
 
@@ -201,20 +201,34 @@ The Intune health-script (Remediation) APIs are in the Graph **beta** endpoint, 
 
 ### The standalone package (recommended)
 
-The current recommended deployment is one Intune Remediations script package built from [`remediation/Detect-IntuneWUO.ps1`](../remediation/Detect-IntuneWUO.ps1) and [`remediation/Remediate-IntuneWUO.ps1`](../remediation/Remediate-IntuneWUO.ps1). Nothing else is installed on devices, and Intune is the switch: detection only reports, adding the remediation script turns fixes on. The MCP server's planning and request tools still produce the older Win32 app edition. For the standalone package, an agent with a Graph tool (for example the [Lokka](https://lokka.dev) MCP server) needs only `DeviceManagementScripts.ReadWrite.All`, `Group.Read.All` (or `Group.ReadWrite.All` to create the pilot group) and `DeviceManagementManagedDevices.Read.All`, and makes these calls on the beta endpoint, each after the human approves it:
+The recommended deployment is one Intune Remediations script package, `Intune-WUO`, built from [`remediation/Detect-IntuneWUO.ps1`](../remediation/Detect-IntuneWUO.ps1) and [`remediation/Remediate-IntuneWUO.ps1`](../remediation/Remediate-IntuneWUO.ps1). Nothing else is installed on devices, and Intune is the switch: detection only reports; add the remediation script and turn on `runRemediationScript` for a group's assignment to switch fixes on for that group.
 
-1. `GET /deviceManagement/deviceHealthScripts`, the pilot group, and its members (read first).
-2. `POST /deviceManagement/deviceHealthScripts`: `runAsAccount: "system"`, `runAs32Bit: false`, `enforceSignatureCheck: false`, and `detectionScriptContent` as the base64 of the file's exact bytes. No `remediationScriptContent` for detection only. Send the ~70 KB script from a file rather than through the chat.
-3. `POST /deviceManagement/deviceHealthScripts/{id}/assign` with one `groupAssignmentTarget` for the pilot group, `runRemediationScript: false` and a `deviceHealthScriptHourlySchedule` (1 hour while piloting, then 8). This replaces the whole assignment list.
-4. Read everything back, including a SHA-256 of the uploaded script compared with the file.
-5. Results: `GET /deviceManagement/deviceHealthScripts/{id}/deviceRunStates`; the status line is in `preRemediationDetectionScriptOutput`.
+`wuo_package_requests` builds every Graph (beta) request for the package's life from the real scripts, with any settings you choose applied to both. The agent sends them with its own tool, each after you approve it:
 
-The step-by-step version for people is in the README *Deployment guide*, and the skill's section 7 has the same calls for agents.
+| `action` | What it prepares |
+|---|---|
+| `create` | Check for an existing `Intune-WUO` package, create it with the detection script only (SYSTEM, 64-bit), assign it to the pilot hourly with fixes off, then read it back |
+| `enable-fixes` | Add the remediation script (and refresh detection to the same version), then turn fixes on for the named groups only |
+| `add-groups` | Assign more groups (for example the next Autopatch ring), detection only unless `fixes: true` |
+| `disable-fixes` | Kill switch: back to report only for the named groups |
+| `update-scripts` | Replace the content with the current version (`fixes: true` replaces both scripts) |
+| `remove` | Unassign the named groups, or every group |
 
-### What the agent will do, in order (Win32 app edition)
+Every step except `create` and `update-scripts` needs the current assignments, because Graph's `assign` **replaces the whole list**: the tool first returns the read request, and computes the new list once you pass what was read. Each script is about 70 KB, so the agent should send the content from a file rather than through the chat.
+
+The manual version is in the README *Deployment guide*; the skill's section 7 lists the same calls.
+
+### What the agent will do, in order
 
 1. Ask what it needs and check prerequisites (licence, Autopatch, co-management, app control, access level).
-2. Show the phased plan (P0 prepare, P1 build, P2 app, P3 config packages, P4 remediation, P5 observe, P6 roll out by ring, P7 operate).
+2. Show the phased plan: P0 prepare, P1 get the scripts, P2 create the package (detection only, pilot), P3 read the results, P4 turn on fixes for the pilot, P5 roll out by ring, P6 operate.
+3. After each phase, run the validation checks (`detect`, `fix`) and read device status lines back with `wuo_interpret_status`.
+4. Promote one stage at a time. It will not skip stages.
+
+### What the agent will do, in order (Win32 app edition, optional)
+
+1. Ask what it needs and check prerequisites (licence, Autopatch, co-management, app control, access level).
+2. Show the phased plan (`wuo_plan_deployment` with `edition: win32`: P0 prepare, P1 build, P2 app, P3 config packages, P4 remediation, P5 observe, P6 roll out by ring, P7 operate).
 3. Build the package on a Windows machine (`build/Build-IntuneWUO.ps1`) and, if you have a test device, run `tools/Invoke-WUOValidation.ps1`.
 4. Create the four `IntuneWUO-Config-<Mode>` packages and the `IntuneWUO-DetectRemediate` Remediation, assigned to the **pilot only**, in **ReportOnly**.
 5. After each phase, run the validation checks, and read device status lines back with `wuo_interpret_status`.
@@ -222,21 +236,22 @@ The step-by-step version for people is in the README *Deployment guide*, and the
 
 ## What to ask
 
-- *"Deploy Intune-WUO to my tenant. Pilot group is `WUO-Pilot`, rings are `Autopatch-Test`, `-First`, `-Fast`, `-Broad`, exclude `WUO-Excluded`. I can sign in with Graph PowerShell."*
+- *"Deploy Intune-WUO to my tenant. The pilot group is `WUO-Pilot`; after that use my Autopatch ring groups in order. I can sign in with Graph PowerShell."*
 - *"Check whether my tenant is ready: Business Premium licences, devices in Autopatch, some co-managed."*
-- *"Generate the Graph requests for the config packages, pilot only, ReportOnly."*
-- *"Move the pilot from ReportOnly to Remediate."* (it reads current assignments first, because Graph's assign action replaces the whole list)
-- *"Explain this device: `WUO|v1|NonCompliant|Mode=ReportOnly|Build=26100|Ring=Test|F=SVC_DISABLED_BITS,DISK_LOW`"*
-- *"Kill switch: stop Intune-WUO on the Broad ring now."*
+- *"Create the Intune-WUO package for the pilot, detection only, with MinFreeDiskGB set to 30."*
+- *"Turn on fixes for the pilot."* (it reads the current assignments first, because Graph's assign action replaces the whole list)
+- *"Add the Test ring, report only."*
+- *"Explain this device: `WUO|v1|NonCompliant|Mode=Script|Build=26100|Ring=Test|F=SVC_DISABLED_BITS,UPDATE_OVERDUE`"*
+- *"Kill switch: turn off fixes for the Last ring now."*
 - *"What would roll this back?"*
 
 ## Safety checklist
 
-- [ ] Start with a test tenant or the pilot group. Never All devices or All users.
+- [ ] Start with a test tenant or the pilot group. Never All devices or All users for a first rollout.
 - [ ] Every tenant write is shown to a human and approved per batch.
-- [ ] The agent reads before it writes (group ids, existing `IntuneWUO-*` objects, current assignments).
-- [ ] Each device receives exactly one `IntuneWUO-Config` package.
-- [ ] `IntuneWUO-Config-Off` exists and is ready as the kill switch.
+- [ ] The agent reads before it writes (group ids, an existing `Intune-WUO` package, current assignments).
+- [ ] Each device receives exactly one Intune-WUO package (Win32 edition: exactly one `IntuneWUO-Config` package).
+- [ ] You know the kill switch: turn fixes off for the group (`disable-fixes`), or unassign the package.
 - [ ] No tokens, secrets or the Autopatch `ActionsFeedUri` value are pasted into chat, files or logs.
 - [ ] The ids of everything created are recorded.
 - [ ] Access is removed when the rollout is done.
@@ -245,13 +260,14 @@ The step-by-step version for people is in the README *Deployment guide*, and the
 
 | Tool | Purpose |
 |---|---|
-| `wuo_overview` | What it is and does not do, modes, components, next tools |
+| `wuo_overview` | What it is and does not do, how Intune switches it, settings, next tools |
 | `wuo_check_prerequisites` | Blockers, warnings and recommendations from what is known about the tenant |
-| `wuo_plan_deployment` | The phased plan, the rules for the agent, and markdown to show you |
-| `wuo_generate_graph_requests` | Graph request bodies for the config packages and the Remediation (nothing is sent) |
-| `wuo_generate_mode_change` | Move groups between modes safely (read current assignments first) |
-| `wuo_win32_app_reference` | The Win32 app settings and reference metadata |
-| `wuo_validation_checklist` | Commands and expected results for a phase (`install`, `reportonly`, `remediate`, `fallback`, `autopatch`) |
+| `wuo_plan_deployment` | The phased plan, the rules for the agent, and markdown to show you (`edition: win32` for the optional edition) |
+| `wuo_package_requests` | Graph requests for each step of the `Intune-WUO` package: `create`, `enable-fixes`, `add-groups`, `disable-fixes`, `update-scripts`, `remove` (nothing is sent) |
+| `wuo_validation_checklist` | Commands and expected results for a phase: `detect`, `fix`, `autopatch` (Win32 edition: `install`, `reportonly`, `remediate`, `fallback`) |
+| `wuo_generate_graph_requests` | Win32 edition: request bodies for the config packages and the Remediation |
+| `wuo_generate_mode_change` | Win32 edition: move groups between modes safely |
+| `wuo_win32_app_reference` | Win32 edition: the app settings and reference metadata |
 | `wuo_interpret_status` | Explain a `WUO|v1|...` device status line |
 | `wuo_explain_finding`, `wuo_list_findings` | The findings catalogue |
 | `wuo_get_doc` | Any project document or README section |

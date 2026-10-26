@@ -17,7 +17,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { registerAll, SERVER_INSTRUCTIONS } from './src/tools.mjs';
 
 export function createServer() {
-  const server = new McpServer({ name: 'intune-wuo', version: '0.1.0' }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer({ name: 'intune-wuo', version: '1.0.0' }, { instructions: SERVER_INSTRUCTIONS });
   registerAll(server);
   return server;
 }

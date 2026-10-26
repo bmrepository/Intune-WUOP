@@ -1,6 +1,6 @@
 {
   "name": "intune-wuo-mcp",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "MCP server that lets AI agents learn, plan and deploy the Intune-WUO Windows Update orchestration project. Offline and read-only: it never talks to your tenant.",
   "type": "module",
   "license": "MIT",

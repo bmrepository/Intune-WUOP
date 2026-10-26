@@ -16,7 +16,7 @@ The README *Roadmap* lists what is done and what is not, and [docs/DESIGN.md](do
 
 ## Non-negotiable rules
 
-- The recommended deployment is the **standalone Remediations package**: upload `remediation/Detect-IntuneWUO.ps1` (and later `remediation/Remediate-IntuneWUO.ps1`) as one script package. Nothing else is installed. The MCP tools still describe the older Win32 app edition; for the standalone package follow the README *Deployment guide*.
+- The recommended deployment is the **standalone Remediations package**: upload `remediation/Detect-IntuneWUO.ps1` (and later `remediation/Remediate-IntuneWUO.ps1`) as one script package. Nothing else is installed. With the MCP server, `wuo_plan_deployment` and `wuo_package_requests` cover it end to end; without it, follow the README *Deployment guide*. The Win32 app edition is optional.
 - Start with a **pilot group, detection script only** (the equivalent of ReportOnly). Never assign to All devices or All users.
 - **Never write to a tenant without the human approving the exact batch of changes.** If you have no tenant access, give the human the plan and the requests.
 - Graph's `assign` action **replaces** the whole assignment list: read current assignments first.

@@ -19,8 +19,21 @@ export const SETTINGS = {
   FixServices: { type: 'switch', def: 1 },
   FixPauses: { type: 'switch', def: 1 },
   FixPolicyKeys: { type: 'switch', def: 1 },
-  FixSyncAndCleanup: { type: 'switch', def: 1 }
+  FixSyncAndCleanup: { type: 'switch', def: 1 },
+  FixResetStack: { type: 'switch', def: 0 },
+  InstallOverdueUpdates: { type: 'switch', def: 0 }   // the standalone scripts ship with 1
 };
+
+// The recommended edition: one Remediations package built from these two self-contained scripts.
+export const STANDALONE = {
+  displayName: 'Intune-WUO',
+  detect: 'remediation/Detect-IntuneWUO.ps1',
+  remediate: 'remediation/Remediate-IntuneWUO.ps1',
+  // Settings that exist in the $WUOSettings block at the top of both scripts.
+  settings: ['FixServices', 'FixPauses', 'FixSyncAndCleanup', 'InstallOverdueUpdates', 'FixResetStack', 'FallbackGraceDays',
+    'FallbackMaxAttempts', 'MinFreeDiskGB', 'ResetCooldownDays', 'SyncStaleHours', 'ScanStaleDays', 'FixMaxRepeats']
+};
+export const STANDALONE_ACTIONS = ['create', 'enable-fixes', 'add-groups', 'disable-fixes', 'update-scripts', 'remove'];
 
 /** UTF-8 without BOM, as required when "Enforce script signature check" is on. */
 export function toBase64(text) {
@@ -219,5 +232,150 @@ export function buildWin32AppReference({ version = '1.0.0' } = {}) {
       installExperience: { '@odata.type': 'microsoft.graph.win32LobAppInstallExperience', runAsAccount: 'system', deviceRestartBehavior: 'suppress', maxRunTimeInMinutes: 15 },
       roleScopeTagIds: ['0']
     }
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Standalone Remediations package (recommended edition)
+// ---------------------------------------------------------------------------------------------------------
+
+/** Changes values in the $WUOSettings block of a standalone script. Both scripts must get the same values. */
+export function applyStandaloneSettings(script, settings = {}) {
+  validateSettings(settings);
+  const start = script.indexOf('$WUOSettings = @{');
+  const end = start === -1 ? -1 : script.indexOf('\n}', start);
+  if (start === -1 || end === -1) throw new Error('The $WUOSettings block was not found in the script.');
+  let block = script.slice(start, end);
+  for (const [name, value] of Object.entries(settings)) {
+    if (!STANDALONE.settings.includes(name)) throw new Error(`Setting '${name}' is not in the standalone scripts. Use one of: ${STANDALONE.settings.join(', ')}`);
+    const re = new RegExp(`^(\\s+${name}\\s*=\\s*)\\d+`, 'm');
+    if (!re.test(block)) throw new Error(`Setting '${name}' was not found in the $WUOSettings block.`);
+    block = block.replace(re, `$1${Number(value)}`);
+  }
+  return script.slice(0, start) + block + script.slice(end);
+}
+
+/** The two scripts, with any setting changes applied, and the version stamped in their header. */
+export async function loadStandaloneScripts({ settings = {}, scriptsDir } = {}) {
+  const detect = applyStandaloneSettings(await loadScript(STANDALONE.detect, scriptsDir), settings);
+  const remediate = applyStandaloneSettings(await loadScript(STANDALONE.remediate, scriptsDir), settings);
+  const version = /\$WUOScriptVersion = '([^']+)'/.exec(detect)?.[1] ?? 'unknown';
+  return { detect, remediate, version };
+}
+
+/** Assignment list for the standalone package. runRemediationScript is per group, so rings can be staged. */
+export function standaloneAssignmentBody(groups, excludeGroupIds = [], intervalHours = 1) {
+  if (intervalHours < 1 || intervalHours > 23) throw new Error('Hourly schedules allow 1 to 23 hours.');
+  return {
+    deviceHealthScriptAssignments: [
+      ...groups.map((g) => ({ ...group(g.groupId), runRemediationScript: Boolean(g.fixes), runSchedule: hourly(intervalHours) })),
+      ...excludeGroupIds.map((id) => ({
+        '@odata.type': '#microsoft.graph.deviceHealthScriptAssignment',
+        target: { '@odata.type': '#microsoft.graph.exclusionGroupAssignmentTarget', groupId: id },
+        runRemediationScript: false
+      }))
+    ]
+  };
+}
+
+/**
+ * Graph requests for one step of the standalone package's life. NOTHING is sent.
+ * Graph's assign action replaces the whole assignment list, so every step except 'create' and 'update-scripts'
+ * needs the current assignments: call without currentAssignments to get the read request, then again with them.
+ * @param {object} o
+ * @param {'create'|'enable-fixes'|'add-groups'|'disable-fixes'|'update-scripts'|'remove'} o.action
+ * @param {string[]} [o.groupIds]  the pilot for create; otherwise the groups this step changes
+ * @param {{groupId:string, fixes:boolean}[]} [o.currentAssignments]  read from GET .../assignments
+ */
+export async function buildStandaloneRequests({
+  action = 'create', packageId, groupIds = [], currentAssignments, excludeGroupIds = [], intervalHours = 1,
+  fixes = false, settings = {}, signed = false, scriptsDir
+} = {}) {
+  if (!STANDALONE_ACTIONS.includes(action)) throw new Error(`action must be one of: ${STANDALONE_ACTIONS.join(', ')}`);
+  const scripts = await loadStandaloneScripts({ settings, scriptsDir });
+  const pkgUrl = `${GRAPH}/deviceManagement/deviceHealthScripts/${packageId ?? '{packageId}'}`;
+  const read = (description, url) => ({ description, method: 'GET', url, writes: false, requiresPermission: PERMISSION });
+  const verify = [
+    read('Verify: read the assignments back', `${pkgUrl}/assignments`),
+    read('Results: one row per device; the status line is preRemediationDetectionScriptOutput', `${pkgUrl}/deviceRunStates?$expand=managedDevice($select=deviceName,osVersion)`)
+  ];
+  const assign = (groups, description) => ({
+    description, method: 'POST', url: `${pkgUrl}/assign`,
+    body: standaloneAssignmentBody(groups, excludeGroupIds, intervalHours), writes: true, requiresPermission: PERMISSION
+  });
+  const scriptBody = (withRemediation) => ({
+    '@odata.type': '#microsoft.graph.deviceHealthScript', version: scripts.version,
+    detectionScriptContent: toBase64(scripts.detect),
+    ...(withRemediation ? { remediationScriptContent: toBase64(scripts.remediate) } : {})
+  });
+  const changed = Object.entries(settings).map(([k, v]) => `${k}=${v}`).join(', ');
+  const notes = [
+    'Nothing here has been sent. Show each write to the human and send it only after an explicit yes.',
+    `Scripts: ${STANDALONE.detect} and ${STANDALONE.remediate}, version ${scripts.version}${changed ? `, with settings changed: ${changed}` : ''}.`,
+    'Each script is about 70 KB. Send the content from a file with your own tool; do not paste it through the chat.',
+    `Required Graph permission: ${PERMISSION}. The health-script APIs are in the Graph beta endpoint.`,
+    'After an assign, also check the assignment in the admin center: in testing, Graph read back runRemediationScript: false after it was set to true on the built-in All devices target.'
+  ];
+
+  if (action === 'create') {
+    if (!groupIds.length) notes.push('No pilot group id given: the assign request has a placeholder. Never assign a first rollout to All devices.');
+    const body = {
+      ...scriptBody(false),
+      displayName: STANDALONE.displayName,
+      description: `Intune-WUO ${scripts.version} (github.com/bmrepository/Intune-WUOP). Detects what stops Windows Update and Autopatch from keeping the device current. Detection only = report. Add Remediate-IntuneWUO.ps1 to turn on fixes.`,
+      publisher: 'Intune-WUO', runAsAccount: 'system', runAs32Bit: false, enforceSignatureCheck: signed, roleScopeTagIds: ['0']
+    };
+    return {
+      action, version: scripts.version, notes,
+      requests: [
+        read(`Look for an existing ${STANDALONE.displayName} package (each device gets exactly one)`, `${GRAPH}/deviceManagement/deviceHealthScripts?$select=id,displayName,version&$filter=displayName eq '${STANDALONE.displayName}'`),
+        { description: `Create the ${STANDALONE.displayName} package with the detection script only (report only)`, method: 'POST', url: `${GRAPH}/deviceManagement/deviceHealthScripts`, body, saveResponseIdAs: 'packageId', writes: true, requiresPermission: PERMISSION },
+        assign((groupIds.length ? groupIds : ['<pilot-group-id>']).map((g) => ({ groupId: g, fixes: false })), `Assign to the pilot, detection only, every ${intervalHours} hour(s)`),
+        ...verify
+      ]
+    };
+  }
+
+  if (action === 'update-scripts') {
+    return {
+      action, version: scripts.version,
+      notes: [...notes, fixes ? 'Both scripts are replaced.' : 'Only the detection script is replaced. Pass fixes: true when the package already has the remediation script, so both stay on the same version and settings.'],
+      requests: [{ description: `Replace the script content with version ${scripts.version}`, method: 'PATCH', url: pkgUrl, body: scriptBody(fixes), writes: true, requiresPermission: PERMISSION }, ...verify]
+    };
+  }
+
+  if (!currentAssignments) {
+    return {
+      action, needsCurrentAssignments: true,
+      notes: [...notes, 'Read the current assignments, then call again with currentAssignments = [{ groupId, fixes }] (fixes = runRemediationScript).'],
+      requests: [read('Read the current assignments (the assign action replaces the whole list)', `${pkgUrl}/assignments`)]
+    };
+  }
+  const current = currentAssignments.map((a) => ({ groupId: a.groupId, fixes: Boolean(a.fixes ?? a.runRemediationScript) }));
+  const touched = new Set(groupIds);
+
+  if (action === 'enable-fixes' || action === 'disable-fixes') {
+    const on = action === 'enable-fixes';
+    if (!groupIds.length) throw new Error('Name the group ids whose fixes you want to change.');
+    const missing = groupIds.filter((g) => !current.some((c) => c.groupId === g));
+    if (missing.length) throw new Error(`Not assigned yet: ${missing.join(', ')}. Use add-groups first.`);
+    const next = current.map((c) => (touched.has(c.groupId) ? { ...c, fixes: on } : c));
+    const requests = on ? [{ description: 'Add the remediation script to the package (and refresh the detection script to the same version)', method: 'PATCH', url: pkgUrl, body: scriptBody(true), writes: true, requiresPermission: PERMISSION }] : [];
+    requests.push(assign(next, `Turn ${on ? 'on' : 'off'} fixes for ${groupIds.length} group(s); ${next.length - groupIds.length} other group(s) unchanged`));
+    return { action, version: scripts.version, notes: on ? notes : [...notes, 'Fixes stop from the next run. Nothing needs undoing on devices: Intune-WUO changes no policy.'], requests: [...requests, ...verify] };
+  }
+
+  if (action === 'add-groups') {
+    if (!groupIds.length) throw new Error('Name the group ids to add.');
+    const next = [...current.filter((c) => !touched.has(c.groupId)), ...groupIds.map((g) => ({ groupId: g, fixes }))];
+    return { action, version: scripts.version, notes, requests: [assign(next, `Add ${groupIds.length} group(s) ${fixes ? 'with fixes on' : 'detection only'}; keep the ${current.length} existing assignment(s)`), ...verify] };
+  }
+
+  // remove: take the named groups off the package, or every group when none are named.
+  const next = groupIds.length ? current.filter((c) => !touched.has(c.groupId)) : [];
+  return {
+    action, version: scripts.version,
+    notes: [...notes, 'Unassigning stops all runs on those devices. Nothing is installed on devices, so there is nothing else to remove.'],
+    requests: [assign(next, groupIds.length ? `Remove ${groupIds.length} group(s); keep ${next.length}` : 'Remove every assignment (stops Intune-WUO everywhere)'), ...verify]
   };
 }

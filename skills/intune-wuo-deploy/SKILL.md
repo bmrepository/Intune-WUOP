@@ -13,7 +13,7 @@ Intune-WUO (https://github.com/bmrepository/Intune-WUOP) detects the device-side
 - detection + remediation script = fixes on, including installing overdue approved quality updates
 - unassign the package = off
 
-Settings are a block at the top of each script (keep both the same). Each device gets exactly one Intune-WUO package. The MCP planning tools below still describe the older **Win32 app edition** (modes `Off`, `ReportOnly`, `Remediate`, `RemediateAndFallback` set through one `IntuneWUO-Config-<Mode>` package per device); use them for status interpretation and findings, and follow the README *Deployment guide* (or section 7 here) for the standalone package.
+Settings are a block at the top of each script (keep both the same). Each device gets exactly one Intune-WUO package. `runRemediationScript` is set **per assignment**, so within one package each group can be report-only or fixing. The optional **Win32 app edition** (modes `Off`, `ReportOnly`, `Remediate`, `RemediateAndFallback` set through one `IntuneWUO-Config-<Mode>` package per device) is only for tenants that already use it.
 
 ## 1. Get the knowledge
 
@@ -30,28 +30,27 @@ claude mcp add intune-wuo -- npx -y github:bmrepository/Intune-WUOP
 | Orientation | `wuo_overview` |
 | Are we ready? | `wuo_check_prerequisites` |
 | Ordered plan | `wuo_plan_deployment` |
-| Graph bodies for the packages and Remediation | `wuo_generate_graph_requests` |
-| Move groups between modes | `wuo_generate_mode_change` |
-| Win32 app settings | `wuo_win32_app_reference` |
-| Verify a phase | `wuo_validation_checklist` |
+| Graph requests for the package (create, enable-fixes, add-groups, disable-fixes, update-scripts, remove) | `wuo_package_requests` |
+| Verify a phase (`detect`, `fix`, `autopatch`) | `wuo_validation_checklist` |
 | Explain a device status line | `wuo_interpret_status`, `wuo_explain_finding`, `wuo_list_findings` |
 | Any document | `wuo_get_doc` |
+| Win32 edition only | `wuo_generate_graph_requests`, `wuo_generate_mode_change`, `wuo_win32_app_reference` |
 
 ## 2. Workflow
 
 1. **Orient and ask little.** Call `wuo_overview`. Ask the user only for facts you need (licence, Autopatch registration, group names/ids, co-management, app control, what tenant access you have), then call `wuo_check_prerequisites`. Stop and explain if there are blockers (the usual one: Remediations need Windows Enterprise E3/E5 or equivalent; Microsoft 365 Business Premium is not enough).
 2. **Plan.** Call `wuo_plan_deployment` and show the user the phases. Do not skip phases.
-3. **Build.** The package is built on a Windows machine with `build/Build-IntuneWUO.ps1` (see the plan, phase P1). Offer to run it if you have a shell on Windows; otherwise give the exact command. Recommend `tools/Invoke-WUOValidation.ps1` on a disposable test device first.
-4. **Deploy phase by phase.** For tenant changes generate the requests, **show them to the human, and wait for an explicit yes for each batch** before sending anything.
-5. **Verify** each phase with `wuo_validation_checklist` and the Intune device status.
-6. **Promote** one stage at a time: pilot ReportOnly, pilot Remediate (2 patch cycles), then each Autopatch ring ReportOnly, Remediate, finally RemediateAndFallback. Never skip a stage.
+3. **Get the scripts.** Nothing to build: the two files in `remediation/` are ready. If the user wants other settings, pass them as `settings` to `wuo_package_requests`, which changes both scripts the same way.
+4. **Deploy phase by phase** with `wuo_package_requests`: `create` (detection only, pilot), then `enable-fixes` for the pilot, then `add-groups` / `enable-fixes` ring by ring. **Show each write to the human and wait for an explicit yes** before sending it with your own tool.
+5. **Verify** each phase with `wuo_validation_checklist` (`detect`, then `fix`) and the Intune device status. Check that `remediationState` stops being `skipped` once fixes are on.
+6. **Promote** one stage at a time: pilot detection only, pilot fixes (2 patch cycles), then each Autopatch ring detection only, then fixes. Never skip a stage. Move the schedule from 1 hour to 8 hours after the pilot.
 
 ## 3. Hard rules
 
-- **Start with the pilot group in `ReportOnly`.** Never assign to All devices or All users.
+- **Start with the pilot group, detection only (the equivalent of `ReportOnly`).** Never assign to All devices or All users for a first rollout.
 - **Nothing is sent to a tenant without the human approving that exact batch.** If you have no tenant tool, hand the human the requests or the admin-center steps.
-- **Read before you write.** Verify group ids; look for existing `IntuneWUO-*` objects to avoid duplicates.
-- **Graph's `assign` action replaces the whole assignment list.** Read current assignments first (`wuo_generate_mode_change` does this in two calls). Assign the target package before removing the source, so a device is never without a config package.
+- **Read before you write.** Verify group ids; look for an existing `Intune-WUO` package (or `IntuneWUO-*` objects) to avoid duplicates.
+- **Graph's `assign` action replaces the whole assignment list.** Read current assignments first (`wuo_package_requests` does this in two calls: it returns the read request, then the new list once you pass what you read).
 - **Never read, print, copy or log the Autopatch `ActionsFeedUri` registry value.** It contains a signed access token. Read the `ClientBroker` key with an explicit property list (`Ring`, `DeviceReadinessTimestamp`).
 - Never paste tokens, client secrets or certificates into chat, files or logs.
 - Do not change update policy, Autopatch policy, VBS or CHPE yourself. Intune-WUO reports those and leaves them to Intune policy.
@@ -72,17 +71,18 @@ The encrypted `.intunewin` upload for the Win32 app is **not** covered by the MC
 
 ## 5. Interpreting a device
 
-Status lines start with `WUO|v1|`: `Compliant`, `NonCompliant` (with `F=` finding ids, `+N` means more did not fit), `Remediated`, `Disabled`, `NoAction`, `Error`. Pass them to `wuo_interpret_status`. In `ReportOnly` nothing is ever changed. A fix that keeps being undone is suppressed after `FixMaxRepeats` and reported: look for the policy, baseline or tool that undoes it. `WaaSMedicSvc` fixes are expected to fail (Windows protects that service).
+Status lines start with `WUO|v1|`: `Compliant`, `NonCompliant` (with `F=` finding ids, `+N` means more did not fit), `Remediated` (with `Fixed=`, `Failed=`, `Suppressed=`, `AdminAction=`), `Disabled`, `NoAction`, `Error`. The standalone package shows `Mode=Script`. Pass them to `wuo_interpret_status`. A detection-only package never changes anything. A fix that keeps being undone is suppressed after `FixMaxRepeats` and reported: look for the policy, baseline or tool that undoes it. `WaaSMedicSvc` fixes are expected to fail (Windows protects that service).
 
 ## 6. Operating
 
-- **Kill switch:** assign `IntuneWUO-Config-Off` to the affected group and use *Run remediation* for an urgent stop.
-- **Rollback:** unassign the Remediation, set the Win32 app assignment to Uninstall. Intune-WUO changes no Intune or Autopatch policy, so nothing else needs reverting.
+- **Kill switch:** `wuo_package_requests` action `disable-fixes` for the affected groups (detection keeps reporting), or remove the remediation script from the package. Win32 edition: assign `IntuneWUO-Config-Off`.
+- **Rollback:** unassign or delete the package. It installs nothing and changes no Intune or Autopatch policy, so nothing else needs reverting.
+- **Feature updates** (for example 24H2 to 25H2) are Autopatch's job. Intune-WUO never installs them; it reports blockers only.
 - **Success:** at least 95% of in-scope devices on the latest approved quality update (or current hotpatch) within ring deadline + 7 days; Autopatch Not ready/alerted count falling; no blocker older than 14 days.
 
 ## 7. Standalone package through Graph (beta)
 
-Show the human each request and wait for an explicit yes before sending it.
+`wuo_package_requests` produces all of these for you. Without the MCP server, these are the calls. Show the human each request and wait for an explicit yes before sending it.
 
 1. Read first: `GET /deviceManagement/deviceHealthScripts` (no existing `Intune-WUO`), the pilot group id, and its members.
 2. Create: `POST /deviceManagement/deviceHealthScripts` with `displayName`, `description`, `publisher`, `runAsAccount: "system"`, `runAs32Bit: false`, `enforceSignatureCheck: false`, `roleScopeTagIds: ["0"]`, and `detectionScriptContent` = base64 of the file's exact bytes (UTF-8, no BOM). Leave `remediationScriptContent` out for detection only. The script is about 70 KB: send it from a file, not pasted through chat.
@@ -98,4 +98,5 @@ Show the human each request and wait for an explicit yes before sending it.
 - The standalone detection script exits 1 on any Warning or Critical finding (so detection-only reports *With issues*), and its status line shows `Mode=Script`.
 - `Update/IgnoreWindowsUpdateGroupPolicies = 1` (Windows 11 24H2 with KB5101684, build 26100.8973+) is the clean fix for leftover Group Policy. Intune-WUO only reports GPO/WSUS conflicts and never deletes domain Group Policy values.
 - Hotpatch needs Windows 11 24H2+, VBS running, Arm64 needs CHPE disabled. Intune-WUO reports blockers only.
-- Known limits today: policy-key fixes are not active (no GPO-vs-local attribution), hotpatch enrollment is not read, and the fixes/fallback have been validated with mocks plus a harness (`tools/Invoke-WUOValidation.ps1`) that you should run on a test device. Say so honestly if the user asks what is proven.
+- An overdue update's age counts from its release date plus the ring's `DeferQualityUpdatesPeriodInDays`, then the ring's quality deadline (default 7) plus `FallbackGraceDays` (default 3). The KB number is in the `IntuneWUO` event log and the JSON log on the device, not in the Intune status line.
+- Known limits today: policy-key fixes are not active (no GPO-vs-local attribution), hotpatch enrollment is not read, an overdue-update install by the remediation script has not yet been observed through Intune, and the validation harness (`tools/Invoke-WUOValidation.ps1`) drives the Win32 edition. Say so honestly if the user asks what is proven.

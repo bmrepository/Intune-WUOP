@@ -7,7 +7,8 @@ import { loadCatalogue, findFinding } from '../src/catalogue.mjs';
 import { parseStatusLine, interpretStatus } from '../src/status.mjs';
 import { checkPrerequisites } from '../src/prerequisites.mjs';
 import { SETTINGS, MODES, toBase64, stampConfigScript, validateSettings, assignmentBody, buildConfigPackageRequests, buildRemediationRequests, buildModeChange, buildWin32AppReference } from '../src/payloads.mjs';
-import { buildPlan, buildGraphRequests, renderPlanMarkdown, ROLLOUT_STAGES } from '../src/plan.mjs';
+import { buildPlan, buildGraphRequests, renderPlanMarkdown, ROLLOUT_STAGES, STANDALONE_STAGES } from '../src/plan.mjs';
+import { STANDALONE, applyStandaloneSettings, buildStandaloneRequests, loadStandaloneScripts } from '../src/payloads.mjs';
 import { validationChecklist, PHASES } from '../src/validation.mjs';
 
 // ---------------------------------------------------------------- content
@@ -243,8 +244,21 @@ test('win32 reference never claims to upload content', () => {
 });
 
 // ---------------------------------------------------------------- plan + validation
-test('plan has the phases in order, placeholders for missing group ids, and approval on every write', () => {
-  const plan = buildPlan({ pilotGroup: { name: 'WUO-Pilot' }, ringGroups: [{ name: 'Test' }], excludedGroup: { name: 'WUO-Excluded' } });
+test('default plan is the standalone package: detection-only pilot before fixes, approval on every write', () => {
+  const plan = buildPlan({ pilotGroup: { name: 'WUO-Pilot' }, ringGroups: [{ name: 'Test' }] });
+  assert.equal(plan.summary.edition, 'standalone');
+  assert.deepEqual(plan.phases.map((p) => p.id), ['P0', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6']);
+  assert.equal(plan.summary.needsGroupIds, true);
+  assert.match(plan.phases[2].steps[0].requestsFrom, /wuo_package_requests \(action: create\)/);
+  assert.match(plan.phases[4].steps[0].requestsFrom, /enable-fixes/);
+  for (const p of plan.phases) for (const s of p.steps.filter((x) => x.kind === 'graph')) assert.equal(s.requiresApproval, true, s.id);
+  assert.ok(plan.guardrailsForAgent.some((g) => /exactly one Intune-WUO script package/.test(g)));
+  assert.match(renderPlanMarkdown(plan), /standalone Remediations package/);
+  assert.deepEqual(STANDALONE_STAGES.map((s) => s.fixes), [false, true, false, true]);
+});
+
+test('Win32 plan has the phases in order, placeholders for missing group ids, and approval on every write', () => {
+  const plan = buildPlan({ edition: 'win32', pilotGroup: { name: 'WUO-Pilot' }, ringGroups: [{ name: 'Test' }], excludedGroup: { name: 'WUO-Excluded' } });
   assert.deepEqual(plan.phases.map((p) => p.id), ['P0', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7']);
   assert.equal(plan.summary.needsGroupIds, true);
   assert.match(renderPlanMarkdown(plan), /group-id/);
@@ -254,7 +268,7 @@ test('plan has the phases in order, placeholders for missing group ids, and appr
 });
 
 test('plan with all ids supplied does not ask for more, and hotpatch adds its step', () => {
-  const plan = buildPlan({ pilotGroup: { id: 'p' }, ringGroups: [{ id: 'r' }], excludedGroup: { id: 'e' }, hotpatch: true, signed: true });
+  const plan = buildPlan({ edition: 'win32', pilotGroup: { id: 'p' }, ringGroups: [{ id: 'r' }], excludedGroup: { id: 'e' }, hotpatch: true, signed: true });
   assert.equal(plan.summary.needsGroupIds, false);
   assert.ok(plan.phases[0].steps.some((s) => s.id === 'P0.7'));
   assert.match(plan.phases[1].steps[0].commands.join(' '), /CertThumbprint/);
@@ -289,4 +303,83 @@ test('validation checklists exist for every phase and never print the signed Aut
     }
   }
   assert.ok(warned, 'the broker check must warn about ActionsFeedUri');
+});
+
+// ---------------------------------------------------------------- standalone package
+const decode = (b64) => Buffer.from(b64, 'base64').toString('utf8');
+
+test('standalone settings are changed in both scripts, and only known ones', async () => {
+  const s = await loadStandaloneScripts({ settings: { MinFreeDiskGB: 30, FixResetStack: 1 } });
+  for (const script of [s.detect, s.remediate]) {
+    assert.match(script, /^\s+MinFreeDiskGB\s+= 30\b/m);
+    assert.match(script, /^\s+FixResetStack\s+= 1\b/m);
+  }
+  assert.match(s.version, /^\d+\.\d+\.\d+$/);
+  assert.throws(() => applyStandaloneSettings(s.detect, { FixPolicyKeys: 0 }), /not in the standalone scripts/);
+  assert.throws(() => applyStandaloneSettings(s.detect, { MinFreeDiskGB: 9999 }), /between/);
+  assert.throws(() => applyStandaloneSettings('no block here', { MinFreeDiskGB: 30 }), /not found/);
+  for (const name of STANDALONE.settings) assert.ok(SETTINGS[name], `${name} must be a known setting`);
+});
+
+test('create: detection only, SYSTEM 64-bit, pilot assigned with fixes off, duplicates checked first', async () => {
+  const r = await buildStandaloneRequests({ action: 'create', groupIds: ['pilot'] });
+  assert.equal(r.requests[0].method, 'GET');
+  const create = r.requests[1];
+  assert.equal(create.body.displayName, 'Intune-WUO');
+  assert.equal(create.body.runAsAccount, 'system');
+  assert.equal(create.body.runAs32Bit, false);
+  assert.equal(create.body.remediationScriptContent, undefined, 'detection only');
+  assert.match(decode(create.body.detectionScriptContent), /Intune-WUO detection script/);
+  const a = r.requests[2].body.deviceHealthScriptAssignments;
+  assert.equal(a.length, 1);
+  assert.equal(a[0].runRemediationScript, false);
+  assert.equal(a[0].runSchedule.interval, 1);
+  const noPilot = await buildStandaloneRequests({ action: 'create' });
+  assert.equal(noPilot.requests[2].body.deviceHealthScriptAssignments[0].target.groupId, '<pilot-group-id>');
+});
+
+test('later steps need the current assignments and never drop other groups', async () => {
+  const first = await buildStandaloneRequests({ action: 'enable-fixes', packageId: 'pkg', groupIds: ['pilot'] });
+  assert.equal(first.needsCurrentAssignments, true);
+  assert.ok(first.requests.every((q) => q.method === 'GET'));
+
+  const current = [{ groupId: 'pilot', fixes: false }, { groupId: 'ring', fixes: false }];
+  const on = await buildStandaloneRequests({ action: 'enable-fixes', packageId: 'pkg', groupIds: ['pilot'], currentAssignments: current });
+  assert.equal(on.requests[0].method, 'PATCH');
+  assert.match(decode(on.requests[0].body.remediationScriptContent), /Intune-WUO remediation script/);
+  const after = on.requests[1].body.deviceHealthScriptAssignments.map((x) => [x.target.groupId, x.runRemediationScript]);
+  assert.deepEqual(after, [['pilot', true], ['ring', false]]);
+  await assert.rejects(() => buildStandaloneRequests({ action: 'enable-fixes', packageId: 'pkg', groupIds: ['new'], currentAssignments: current }), /add-groups first/);
+
+  const add = await buildStandaloneRequests({ action: 'add-groups', packageId: 'pkg', groupIds: ['ring2'], currentAssignments: current, intervalHours: 8 });
+  assert.deepEqual(add.requests[0].body.deviceHealthScriptAssignments.map((x) => x.target.groupId), ['pilot', 'ring', 'ring2']);
+  assert.equal(add.requests[0].body.deviceHealthScriptAssignments[2].runSchedule.interval, 8);
+
+  const off = await buildStandaloneRequests({ action: 'disable-fixes', packageId: 'pkg', groupIds: ['pilot'], currentAssignments: [{ groupId: 'pilot', fixes: true }] });
+  assert.equal(off.requests[0].method, 'POST', 'disabling fixes changes no script content');
+  assert.equal(off.requests[0].body.deviceHealthScriptAssignments[0].runRemediationScript, false);
+
+  const rm = await buildStandaloneRequests({ action: 'remove', packageId: 'pkg', currentAssignments: current });
+  assert.deepEqual(rm.requests[0].body.deviceHealthScriptAssignments, []);
+  await assert.rejects(() => buildStandaloneRequests({ action: 'bogus' }), /action must be/);
+});
+
+test('update-scripts replaces both scripts only when asked', async () => {
+  const d = await buildStandaloneRequests({ action: 'update-scripts', packageId: 'pkg' });
+  assert.equal(d.requests[0].body.remediationScriptContent, undefined);
+  const both = await buildStandaloneRequests({ action: 'update-scripts', packageId: 'pkg', fixes: true });
+  assert.ok(both.requests[0].body.remediationScriptContent);
+});
+
+test('Mode=Script status lines get standalone advice; remediation output lists admin actions', async () => {
+  const c = await loadCatalogue();
+  const nc = interpretStatus(parseStatusLine('WUO|v1|NonCompliant|Mode=Script|Build=26100|Ring=Test|F=UPDATE_OVERDUE'), c);
+  assert.match(nc.nextSteps.join(' '), /Standalone package/);
+  const rem = interpretStatus(parseStatusLine('WUO|v1|Remediated|Fixed=UPDATE_OVERDUE|Failed=|Suppressed=|AdminAction=DIAGDATA_LOW'), c);
+  assert.equal(rem.summary.adminAction, 1);
+  assert.match(rem.nextSteps.join(' '), /without a restart/);
+});
+
+test('standalone validation phases exist', () => {
+  for (const p of ['detect', 'fix']) assert.ok(validationChecklist(p).checks.length >= 4, p);
 });
