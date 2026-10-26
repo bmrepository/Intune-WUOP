@@ -31,6 +31,8 @@ function Select-WUOFallbackCandidate {
         An update qualifies only if it is a quality/security update (not a driver, upgrade, feature pack,
         definition update or optional/browse-only update), has been offered longer than the ring deadline
         plus FallbackGraceDays, and has fewer than FallbackMaxAttempts failed attempts.
+        The age counts from Microsoft's release date plus the ring's quality deferral (when the ring
+        could first have offered it), or from first-seen when the update has no release date.
         Returns every update with Eligible and Reason, so the log can explain each decision.
     #>
     [CmdletBinding()]
@@ -38,6 +40,7 @@ function Select-WUOFallbackCandidate {
         [object[]]$Updates = @(),
         [Parameter(Mandatory)]$Config,
         [int]$DeadlineDays = 7,
+        [int]$DeferralDays = 0,
         [hashtable]$AttemptCounts = @{},
         [hashtable]$FirstSeen = @{},
         [datetime]$Now = (Get-Date)
@@ -54,7 +57,7 @@ function Select-WUOFallbackCandidate {
         elseif ($cats -match 'Drivers|Upgrades|Feature Packs|Definition Updates') { $reason = "ExcludedCategory($cats)" }
         else {
             $ref = $null
-            if ($u.LastDeploymentChange -and ([datetime]$u.LastDeploymentChange).Year -gt 2000) { $ref = [datetime]$u.LastDeploymentChange }
+            if ($u.LastDeploymentChange -and ([datetime]$u.LastDeploymentChange).Year -gt 2000) { $ref = ([datetime]$u.LastDeploymentChange).AddDays($DeferralDays) }
             elseif ($FirstSeen.ContainsKey($u.UpdateId)) { $ref = [datetime]$FirstSeen[$u.UpdateId] }
             if ($ref) { $age = [math]::Round(($Now - $ref).TotalDays, 1) }
 
@@ -207,8 +210,10 @@ function Invoke-WUOFallbackRun {
     $deadline = 7
     $pm = if ($State.PolicyManager) { $State.PolicyManager } else { @{} }
     if ($null -ne $pm['ConfigureDeadlineForQualityUpdates']) { $deadline = [int]$pm['ConfigureDeadlineForQualityUpdates'] }
+    $deferral = 0
+    if ($null -ne $pm['DeferQualityUpdatesPeriodInDays']) { $deferral = [int]$pm['DeferQualityUpdatesPeriodInDays'] }
 
-    $decisions = @(Select-WUOFallbackCandidate -Updates $offered -Config $Config -DeadlineDays $deadline `
+    $decisions = @(Select-WUOFallbackCandidate -Updates $offered -Config $Config -DeadlineDays $deadline -DeferralDays $deferral `
         -AttemptCounts $attempts -FirstSeen $firstSeen -Now $Now)
     $summary.Candidates = $decisions
     $eligible = @($decisions | Where-Object Eligible)

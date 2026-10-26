@@ -5,7 +5,7 @@
 **Two files, nothing to install:** [`remediation/Detect-IntuneWUO.ps1`](remediation/Detect-IntuneWUO.ps1) and [`remediation/Remediate-IntuneWUO.ps1`](remediation/Remediate-IntuneWUO.ps1). Upload them as a custom script package in **Devices › Scripts and remediations**. That's the whole deployment.
 
 > [!IMPORTANT]
-> **Project status: pre-release (v0.3).** The engine is covered by 119 Pester and 39 Node tests, and its fixes passed an end-to-end validation run on a Windows 11 test device enrolled in Autopatch. The standalone detection script runs on Windows 11 and is in its first tenant pilot. **Not yet proven:** a real update install by the remediation, detection as SYSTEM through Intune at scale, hotpatch enrollment detection, and a 24H2/25H2 device. Start with the detection script only, on a pilot group.
+> **Project status: v1.0, first release of the standalone package.** The engine is covered by 120 Pester and 39 Node tests, and its fixes passed an end-to-end validation run on a Windows 11 test device enrolled in Autopatch. The detection script has run through Intune as SYSTEM on two Windows 11 test devices and reported correctly, including an overdue approved update. **Not yet proven in the field:** an overdue-update install by the remediation script through Intune, hotpatch enrollment detection, and hybrid-joined or co-managed devices. Roll out as the deployment guide says: detection only on a pilot group first, then add the remediation script.
 
 ---
 
@@ -168,7 +168,7 @@ Detection is read-only apart from one thing: it records, in `HKLM\SOFTWARE\Intun
 | **Pauses** | User pause (not set by policy) | **Fix** (`FixPauses`). A pause Intune is actively setting is never touched |
 | **Services** | `wuauserv`, `UsoSvc`, `BITS`, `WaaSMedicSvc`, `wlidsvc`, `DiagTrack` set to *Disabled* (stopped trigger-start services are healthy and not flagged) | **Fix** (`FixServices`): restore the default start type |
 | **Update stack** | No successful scan in `ScanStaleDays` | **Fix only if `FixResetStack` = 1** (off by default): reset components, at most once per `ResetCooldownDays`. **Side effect: this renames `SoftwareDistribution`, which also resets the Windows Update history list in Settings (installed updates stay installed).** Only the newest backup is kept |
-| **Overdue update** | An approved quality or security update offered for longer than the ring deadline (`ConfigureDeadlineForQualityUpdates`, default 7) + `FallbackGraceDays` | **Fix** (`InstallOverdueUpdates`): install exactly those updates through the native Windows Update API. No drivers, no feature updates, never a restart; stops after `FallbackMaxAttempts` failures |
+| **Overdue update** | An approved quality or security update still not installed after the ring deferral (`DeferQualityUpdatesPeriodInDays`) + ring deadline (`ConfigureDeadlineForQualityUpdates`, default 7) + `FallbackGraceDays`, counted from its release date | **Fix** (`InstallOverdueUpdates`): install exactly those updates through the native Windows Update API. No drivers, no feature updates, never a restart; stops after `FallbackMaxAttempts` failures |
 | **Diagnostic data** | At least *Required* (needed by Autopatch) | **Report** |
 | **MDM sync** | Last sync older than `SyncStaleHours` | **Fix** (`FixSyncAndCleanup`): trigger a sync |
 | **Disk** | Free space below `MinFreeDiskGB` | **Fix** (`FixSyncAndCleanup`): clean old temp files and run component cleanup. Also blocks update installs |
@@ -602,10 +602,12 @@ Results are written to `local\validation\<host>-<timestamp>.md` and `.json`. Tha
 - [x] Read the Autopatch Client Broker readiness result, ring and timestamp
 - [x] MCP server, skill, Claude Code plugin and agent guide (offline, read-only; tenant writes stay with the agent's own tool after human approval)
 - [x] **Standalone Remediations package**: two self-contained scripts, Intune decides report vs fix, overdue-update install in the remediation, stack reset off by default
-- [x] Package created through Microsoft Graph in a test tenant (detection only, pilot group)
-- [ ] First detection results from the pilot devices in Intune, then turn on the remediation script
-- [ ] A real overdue-update install by the remediation script on a test device
-- [ ] Validation on a 24H2/25H2 device (hybrid-joined or co-managed)
+- [x] Package created through Microsoft Graph in a test tenant
+- [x] First detection results through Intune on two test devices: one compliant, one correctly reporting an overdue approved update
+- [x] Overdue-update age includes the ring's quality deferral, so rings that defer are not flagged early
+- [x] Remediation script added to the package in the test tenant
+- [ ] A real overdue-update install by the remediation script through Intune
+- [ ] Validation on a hybrid-joined or co-managed device
 - [ ] Tiered stack reset that preserves the Windows Update history (clear `SoftwareDistribution\Download` first; full rename only if scans stay stale)
 - [ ] Attribute policy values to domain GPO vs local policy (would allow removing local leftovers; today policy findings are report-only)
 - [ ] Hotpatch enrollment detection (hotpatch findings stay skipped until then)

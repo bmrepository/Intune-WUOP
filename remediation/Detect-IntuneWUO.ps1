@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Intune-WUO detection script (Intune Remediations). Version 0.3.0. Self-contained: nothing to install.
+    Intune-WUO detection script (Intune Remediations). Version 1.0.0. Self-contained: nothing to install.
 .DESCRIPTION
     Checks what stops Windows Update and Windows Autopatch from keeping this device up to date, and prints a
     one-line status for the Intune report, for example:
@@ -39,7 +39,7 @@ $WUOSettings = @{
     FixMaxRepeats         = 3    # a fix needed this many times in 7 days is suppressed (something else keeps undoing it)
 }
 
-$WUOScriptVersion = '0.3.0'
+$WUOScriptVersion = '1.0.0'
 
 #region IntuneWUO engine (generated, do not edit)
 New-Module -Name IntuneWUO -ScriptBlock {
@@ -426,6 +426,8 @@ function Select-WUOFallbackCandidate {
         An update qualifies only if it is a quality/security update (not a driver, upgrade, feature pack,
         definition update or optional/browse-only update), has been offered longer than the ring deadline
         plus FallbackGraceDays, and has fewer than FallbackMaxAttempts failed attempts.
+        The age counts from Microsoft's release date plus the ring's quality deferral (when the ring
+        could first have offered it), or from first-seen when the update has no release date.
         Returns every update with Eligible and Reason, so the log can explain each decision.
     #>
     [CmdletBinding()]
@@ -433,6 +435,7 @@ function Select-WUOFallbackCandidate {
         [object[]]$Updates = @(),
         [Parameter(Mandatory)]$Config,
         [int]$DeadlineDays = 7,
+        [int]$DeferralDays = 0,
         [hashtable]$AttemptCounts = @{},
         [hashtable]$FirstSeen = @{},
         [datetime]$Now = (Get-Date)
@@ -449,7 +452,7 @@ function Select-WUOFallbackCandidate {
         elseif ($cats -match 'Drivers|Upgrades|Feature Packs|Definition Updates') { $reason = "ExcludedCategory($cats)" }
         else {
             $ref = $null
-            if ($u.LastDeploymentChange -and ([datetime]$u.LastDeploymentChange).Year -gt 2000) { $ref = [datetime]$u.LastDeploymentChange }
+            if ($u.LastDeploymentChange -and ([datetime]$u.LastDeploymentChange).Year -gt 2000) { $ref = ([datetime]$u.LastDeploymentChange).AddDays($DeferralDays) }
             elseif ($FirstSeen.ContainsKey($u.UpdateId)) { $ref = [datetime]$FirstSeen[$u.UpdateId] }
             if ($ref) { $age = [math]::Round(($Now - $ref).TotalDays, 1) }
 
@@ -602,8 +605,10 @@ function Invoke-WUOFallbackRun {
     $deadline = 7
     $pm = if ($State.PolicyManager) { $State.PolicyManager } else { @{} }
     if ($null -ne $pm['ConfigureDeadlineForQualityUpdates']) { $deadline = [int]$pm['ConfigureDeadlineForQualityUpdates'] }
+    $deferral = 0
+    if ($null -ne $pm['DeferQualityUpdatesPeriodInDays']) { $deferral = [int]$pm['DeferQualityUpdatesPeriodInDays'] }
 
-    $decisions = @(Select-WUOFallbackCandidate -Updates $offered -Config $Config -DeadlineDays $deadline `
+    $decisions = @(Select-WUOFallbackCandidate -Updates $offered -Config $Config -DeadlineDays $deadline -DeferralDays $deferral `
         -AttemptCounts $attempts -FirstSeen $firstSeen -Now $Now)
     $summary.Candidates = $decisions
     $eligible = @($decisions | Where-Object Eligible)
@@ -779,9 +784,11 @@ function Get-WUOFinding {
     if ($State.Contains('OfferedUpdates') -and $null -ne $State['OfferedUpdates']) {
         $deadline = 7
         if ($null -ne $pm['ConfigureDeadlineForQualityUpdates']) { $deadline = [int]$pm['ConfigureDeadlineForQualityUpdates'] }
+        $deferral = 0
+        if ($null -ne $pm['DeferQualityUpdatesPeriodInDays']) { $deferral = [int]$pm['DeferQualityUpdatesPeriodInDays'] }
         $firstSeen = if ($State.Contains('UpdateFirstSeen') -and $State['UpdateFirstSeen']) { $State['UpdateFirstSeen'] } else { @{} }
         $attempts = if ($State.Contains('UpdateAttempts') -and $State['UpdateAttempts']) { $State['UpdateAttempts'] } else { @{} }
-        $overdue = @(Select-WUOFallbackCandidate -Updates @($State['OfferedUpdates']) -Config $Config -DeadlineDays $deadline `
+        $overdue = @(Select-WUOFallbackCandidate -Updates @($State['OfferedUpdates']) -Config $Config -DeadlineDays $deadline -DeferralDays $deferral `
             -AttemptCounts $attempts -FirstSeen $firstSeen -Now $Now | Where-Object Eligible)
         if ($overdue.Count -gt 0) {
             $titles = @($overdue | ForEach-Object { if ($_.Update.KB) { "KB$($_.Update.KB)" } else { $_.Update.Title } }) -join ', '

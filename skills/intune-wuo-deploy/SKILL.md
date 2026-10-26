@@ -89,7 +89,7 @@ Show the human each request and wait for an explicit yes before sending it.
 3. Assign: `POST /deviceManagement/deviceHealthScripts/{id}/assign` with `deviceHealthScriptAssignments: [{ target: { "@odata.type": "#microsoft.graph.groupAssignmentTarget", groupId }, runRemediationScript: false, runSchedule: { "@odata.type": "#microsoft.graph.deviceHealthScriptHourlySchedule", interval: 1..23 } }]`. This replaces the whole assignment list.
 4. Verify: read back the script (compare a SHA-256 of the decoded content with the file) and `GET .../assignments`.
 5. Results: `GET .../deviceHealthScripts/{id}/deviceRunStates?$expand=managedDevice($select=deviceName)`; the status line is `preRemediationDetectionScriptOutput`. Devices pick up a new package within 8 hours, or when the Intune Management Extension restarts.
-6. Turn on fixes later: `PATCH` the script with `remediationScriptContent`, then re-assign with `runRemediationScript: true` (steps 1-5 have been run against a test tenant; this step has not yet).
+6. Turn on fixes later: `PATCH` the script with `remediationScriptContent`, then re-assign with `runRemediationScript: true`. All six steps have been run against a test tenant. In that test, after an `assign` to the built-in All devices target, `GET .../assignments` still returned `runRemediationScript: false`: confirm in the admin center that the assignment shows the remediation script as on, and check `remediationState` in `deviceRunStates` after the next run.
 
 ## Facts that are easy to get wrong
 

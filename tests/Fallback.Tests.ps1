@@ -51,6 +51,12 @@ Describe 'Select-WUOFallbackCandidate' {
         $d = Select-WUOFallbackCandidate -Updates $ups -Config $cfg -DeadlineDays 1
         @($d | Where-Object Eligible).Count | Should -Be 0
     }
+    It 'adds the ring deferral to the release date' {
+        $d = Select-WUOFallbackCandidate -Updates @(New-Update 'a' -AgeDays 10) -Config $cfg -DeadlineDays 1 -DeferralDays 9
+        $d[0].Reason | Should -Be 'NotYetOverdue'
+        $d = Select-WUOFallbackCandidate -Updates @(New-Update 'a' -AgeDays 14) -Config $cfg -DeadlineDays 1 -DeferralDays 9
+        $d[0].Eligible | Should -BeTrue
+    }
     It 'stops after the maximum number of failed attempts' {
         $d = Select-WUOFallbackCandidate -Updates @(New-Update 'a') -Config $cfg -DeadlineDays 1 -AttemptCounts @{ a = 3 }
         $d[0].Reason | Should -Be 'MaxAttempts'

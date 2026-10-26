@@ -1,6 +1,6 @@
 # Intune-WUO design
 
-Status: v0.3. The engine is implemented and unit-tested, and its fixes were validated end to end on a Windows 11 test device. The recommended delivery is now a **standalone Intune Remediations package** (two self-contained scripts); the earlier Win32 app edition remains in the repository as an option. The requirements behind this design (R1-R15) are summarised in the README; this document records how they are met.
+Status: v1.0. The engine is implemented and unit-tested, its fixes were validated end to end on a Windows 11 test device, and the standalone detection script has reported correctly through Intune on two Windows 11 test devices. The recommended delivery is now a **standalone Intune Remediations package** (two self-contained scripts); the earlier Win32 app edition remains in the repository as an option. The requirements behind this design (R1-R15) are summarised in the README; this document records how they are met.
 
 ## 1. Principles
 
@@ -110,7 +110,7 @@ Used by the standalone remediation script (`InstallUpdates` action) and by the W
 2. The caller holds the `Global\IntuneWUO` mutex.
 3. **Guardrails** (any blocks the pass): native maintenance window enabled (the tool stays out of the way entirely), low disk, restart pending, installer busy (TiWorker), on battery.
 4. Scan the **default** update service for software updates (`ServerSelection = ssDefault`). The standalone remediation reuses the scan it made when collecting state.
-5. **Eligibility** per update: not a driver, not browse-only/optional, not in Upgrades / Feature Packs / Drivers / Definition Updates; offered longer than *ring quality deadline (`ConfigureDeadlineForQualityUpdates`, default 7) + `FallbackGraceDays`* (age from the update's deployment date, falling back to first-seen); fewer than `FallbackMaxAttempts` failures.
+5. **Eligibility** per update: not a driver, not browse-only/optional, not in Upgrades / Feature Packs / Drivers / Definition Updates; offered longer than *ring quality deadline (`ConfigureDeadlineForQualityUpdates`, default 7) + `FallbackGraceDays`* (age from the update's deployment date plus the ring's `DeferQualityUpdatesPeriodInDays`, so a ring that defers is not flagged before it could have been offered; falling back to first-seen); fewer than `FallbackMaxAttempts` failures.
 6. Install exactly the eligible ids through native WUA COM (or the pinned PSWindowsUpdate in the Win32 edition). No restart is ever requested.
 7. Record per-update success or failure counters; log each decision and write events.
 

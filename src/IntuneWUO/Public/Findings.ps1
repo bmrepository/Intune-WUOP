@@ -150,9 +150,11 @@ function Get-WUOFinding {
     if ($State.Contains('OfferedUpdates') -and $null -ne $State['OfferedUpdates']) {
         $deadline = 7
         if ($null -ne $pm['ConfigureDeadlineForQualityUpdates']) { $deadline = [int]$pm['ConfigureDeadlineForQualityUpdates'] }
+        $deferral = 0
+        if ($null -ne $pm['DeferQualityUpdatesPeriodInDays']) { $deferral = [int]$pm['DeferQualityUpdatesPeriodInDays'] }
         $firstSeen = if ($State.Contains('UpdateFirstSeen') -and $State['UpdateFirstSeen']) { $State['UpdateFirstSeen'] } else { @{} }
         $attempts = if ($State.Contains('UpdateAttempts') -and $State['UpdateAttempts']) { $State['UpdateAttempts'] } else { @{} }
-        $overdue = @(Select-WUOFallbackCandidate -Updates @($State['OfferedUpdates']) -Config $Config -DeadlineDays $deadline `
+        $overdue = @(Select-WUOFallbackCandidate -Updates @($State['OfferedUpdates']) -Config $Config -DeadlineDays $deadline -DeferralDays $deferral `
             -AttemptCounts $attempts -FirstSeen $firstSeen -Now $Now | Where-Object Eligible)
         if ($overdue.Count -gt 0) {
             $titles = @($overdue | ForEach-Object { if ($_.Update.KB) { "KB$($_.Update.KB)" } else { $_.Update.Title } }) -join ', '

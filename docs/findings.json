@@ -259,7 +259,7 @@
       "severity": "Warning",
       "autoFix": "Updates",
       "title": "An approved quality update is overdue",
-      "cause": "Windows Update has offered a quality or security update (so Autopatch approved it) for longer than the ring deadline (ConfigureDeadlineForQualityUpdates, default 7) plus FallbackGraceDays, and it is still not installed.",
+      "cause": "Windows Update has offered a quality or security update (so Autopatch approved it) for longer than the ring deadline (ConfigureDeadlineForQualityUpdates, default 7) plus FallbackGraceDays, counted from its release date plus the ring deferral (DeferQualityUpdatesPeriodInDays), and it is still not installed.",
       "toolAction": "Installs exactly the overdue offered updates through the native Windows Update API (default service, no drivers, no feature updates), never restarts, and stops after FallbackMaxAttempts failures. Skipped when a restart is pending, disk is low, an install is running, the device is on battery or native maintenance windows are configured.",
       "adminAction": "If it keeps failing, read the HResult in the IntuneWUO log and Get-WindowsUpdateLog; check disk space, proxy/TLS inspection and the Autopatch release status."
     }
