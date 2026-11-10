@@ -23,7 +23,7 @@ Settings are a block at the top of each script (keep both the same). Each device
 claude mcp add intune-wuo -- npx -y github:bmrepository/Intune-WUOP
 ```
 
-(other clients: see docs/AI-AGENTS.md in the repository). **Without MCP**, read, in this order: `AGENTS.md`, `docs/AI-AGENTS.md`, README sections *Modes and switches*, *Prerequisites*, *Deployment guide*, and `docs/findings.json` from https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/ . Do not invent steps, setting names or Graph bodies; take them from those files.
+(other clients: see docs/AI-AGENTS.md in the repository). **Without MCP**, read, in this order: `AGENTS.md`, `docs/AI-AGENTS.md`, README sections *Settings*, *Status flags reference*, *Prerequisites*, *Deployment guide*, and `docs/findings.json` from https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/ . Do not invent steps, setting names or Graph bodies; take them from those files.
 
 | Need | MCP tool |
 |---|---|
@@ -71,7 +71,7 @@ The encrypted `.intunewin` upload for the Win32 app is **not** covered by the MC
 
 ## 5. Interpreting a device
 
-Status lines start with `WUO|v1|`: `Compliant`, `NonCompliant` (with `F=` finding ids, `+N` means more did not fit), `Remediated` (with `Fixed=`, `Failed=`, `Suppressed=`, `AdminAction=`), `Disabled`, `NoAction`, `Error`. The standalone package shows `Mode=Script`. Pass them to `wuo_interpret_status`. A detection-only package never changes anything. A fix that keeps being undone is suppressed after `FixMaxRepeats` and reported: look for the policy, baseline or tool that undoes it. `WaaSMedicSvc` fixes are expected to fail (Windows protects that service).
+Status lines start with `WUO|v1|`: `Compliant`, `NonCompliant` (with `F=` finding ids, `+N` means more did not fit), `Remediated` (with `Fixed=`, `Failed=`, `Suppressed=`, `AdminAction=`), `Disabled`, `NoAction`, `Error`. The standalone package shows `Mode=Script`. Pass them to `wuo_interpret_status`. A detection-only package never changes anything. A fix that keeps being undone is suppressed after `FixMaxRepeats` and reported: look for the policy, baseline or tool that undoes it. `WaaSMedicSvc` fixes are expected to fail (Windows protects that service). Without MCP, explain each flag from the README *Status flags reference* (what triggers it, what the remediation does, what the admin does, its event ID) or `docs/findings.json`; never guess a flag's meaning.
 
 ## 6. Operating
 

@@ -19,7 +19,7 @@
 </table>
 
 > [!NOTE]
-> **Status: v1.0.** 120 Pester and 46 Node tests. The engine's fixes passed an end-to-end validation on a Windows 11 device enrolled in Autopatch. Through Intune, the detection script has run as SYSTEM on two Windows 11 test devices and reported correctly, including an overdue approved update that was then resolved (detection went back to `Compliant`). **Not yet proven in the field:** an overdue-update install performed by the remediation script itself through Intune, hotpatch enrollment detection, and hybrid-joined or co-managed devices. Roll out as the [deployment guide](#deployment-guide) says: detection only on a pilot group first.
+> **Status: v1.1.** 131 Pester and 47 Node tests. The engine's fixes passed an end-to-end validation on a Windows 11 device enrolled in Autopatch. Through Intune, the detection script has run as SYSTEM on two Windows 11 test devices and reported correctly, including an overdue approved update that was then resolved (detection went back to `Compliant`). **Not yet proven in the field:** an overdue-update install performed by the remediation script itself through Intune, hotpatch enrollment detection, and hybrid-joined or co-managed devices. Roll out as the [deployment guide](#deployment-guide) says: detection only on a pilot group first.
 
 ---
 
@@ -33,6 +33,7 @@
 - [How it fits with Windows Autopatch](#how-it-fits-with-windows-autopatch)
 - [How a run works](#how-a-run-works)
 - [What it checks and fixes](#what-it-checks-and-fixes)
+- [Status flags reference](#status-flags-reference): every flag in the output, what it means and what to do
 - [Hotpatch](#hotpatch)
 - [Settings](#settings)
 - [Registry and CSP reference](#registry-and-csp-reference)
@@ -242,8 +243,6 @@ Detection is read-only apart from one thing: it records, in `HKLM\SOFTWARE\Intun
 | **Policy conflicts** | The values Autopatch flags (`DoNotConnectToWindowsUpdateInternetLocations`, `DisableWindowsUpdateAccess`, `AU\NoAutoUpdate`) set to `1` in the Group Policy keys. Any other value is a harmless leftover and is reported as Info | **Report** only: the source (domain GPO vs local policy) is not attributed yet, so nothing is removed |
 | **WSUS remnants** | WSUS in effect: `AU\UseWUServer` = 1 or an Intune `UpdateServiceUrl`, plus DualScan. A `WUServer` address left without `UseWUServer` = 1 is reported as Info | **Report** |
 | **ConfigMgr** | The `CcmExec` service (client installed), or only leftovers (`HKLM\SOFTWARE\Microsoft\CCM`, `C:\Windows\ccmsetup`) | **Report** only (Info) |
-
-**Report-only findings don't fail detection.** The remediation never changes them, so if they failed detection, Intune would show the device as *Recurred* after every run even though nothing is pushing them back. They're still listed in the status line with the value found (`V=`). To make every Warning or Critical finding fail detection anyway, set `FailOnReportOnly` = 1.
 | **Pauses** | User pause (not set by policy) | **Fix** (`FixPauses`). A pause Intune is actively setting is never touched |
 | **Services** | `wuauserv`, `UsoSvc`, `BITS`, `WaaSMedicSvc`, `wlidsvc`, `DiagTrack` set to *Disabled* (stopped trigger-start services are healthy and not flagged) | **Fix** (`FixServices`): restore the default start type |
 | **Update stack** | No successful scan in `ScanStaleDays` | **Fix only if `FixResetStack` = 1** (off by default): reset components, at most once per `ResetCooldownDays`. **Side effect: this renames `SoftwareDistribution`, which also resets the Windows Update history list in Settings (installed updates stay installed).** Only the newest backup is kept |
@@ -254,7 +253,157 @@ Detection is read-only apart from one thing: it records, in `HKLM\SOFTWARE\Intun
 | **Restart** | A restart is pending | **Report** (left to the native deadline) |
 | **Autopatch readiness** | The Autopatch Client Broker's latest `ResultsBitmask`/`ErrorCodes` and how recent its readiness timestamp is (see the [registry reference](#5-windows-autopatch-on-the-device)) | **Report** (`AUTOPATCH_READINESS_FAILED`, `AUTOPATCH_READINESS_STALE`; the ring is included in the status line). A missing broker is informational only |
 
-The full catalogue, with each finding's cause and the admin action, is in [docs/findings.json](docs/findings.json).
+**Report-only findings don't fail detection.** The remediation never changes them, so if they failed detection, Intune would show the device as *Recurred* after every run even though nothing is pushing them back. They're still listed in the status line with the value found (`V=`). To make every Warning or Critical finding fail detection anyway, set `FailOnReportOnly` = 1.
+
+Every flag is explained in [Status flags reference](#status-flags-reference) below.
+
+---
+
+## Status flags reference
+
+Every device reports one line to the Intune Remediations report. This section explains every part of that line and every flag it can contain: what triggers it, what the remediation script does about it, and what you should do. The same catalogue is in machine-readable form in [docs/findings.json](docs/findings.json), which the MCP server's `wuo_explain_finding` and `wuo_interpret_status` tools use.
+
+### Reading the detection line
+
+Shown in the *Pre-remediation detection output* column (and *Post-remediation detection output* after a fix):
+
+```text
+WUO|v1|NonCompliant|Mode=Script|Build=26100|Ring=Test|F=DISK_LOW,SCAN_STALE,UPDATE_OVERDUE,RESTART_PENDING|V=...
+```
+
+| Field | Meaning |
+|---|---|
+| `WUO\|v1` | Intune-WUO output, format version 1 |
+| `Compliant` | No Warning or Critical flags. Info flags may still be listed |
+| `NonCompliant` | At least one Warning or Critical flag |
+| `Error\|<message>` | The detection script itself failed, with the reason. It exits 0, so no fix runs. See the IntuneWUO log on the device |
+| `Disabled` | Win32 edition only: the configured mode is `Off` |
+| `Mode=Script` | The standalone Remediations package. (The optional Win32 edition shows its configured mode instead: `ReportOnly`, `Remediate`, `RemediateAndFallback`) |
+| `Build=` | The Windows build number, for example `26100` = 24H2, `26200` = 25H2 |
+| `Ring=` | The Autopatch ring the Client Broker reports. Absent when the broker isn't installed |
+| `F=` | The flags, Critical first, then Warning, then Info, alphabetical within each. `+N` at the end means N more flags did not fit Intune's 2,048-character limit |
+| `V=` | The values behind the flags, in the same order, separated by `;`. For example `DoNotConnectToWindowsUpdateInternetLocations=1;UseWUServer=1,WUServer=http://wsus:8530;CcmExec=Running`. Only flags that have a value appear here |
+
+**Exit code and the Intune status.** Detection exits **1** only when at least one flag below is marked *fixable* and its setting is on (or when `FailOnReportOnly` = 1 and any Warning or Critical flag is present). Otherwise it exits **0**. In Intune:
+
+| Intune status | What happened |
+|---|---|
+| *Without issues* | Detection exited 0. Report-only and Info flags can still be in the output |
+| *With issues* | Detection exited 1 and the package has no remediation script (or remediation is off for that assignment) |
+| *Issue fixed* | The remediation ran, and detection afterwards exited 0 |
+| *Recurred* | The remediation ran, but detection afterwards still found a fixable flag. Usually `UPDATE_OVERDUE` waiting for a restart or blocked by a guardrail, or a fix that something keeps undoing |
+| *Failed* (remediation) | The remediation script exited 1 because at least one fix failed (listed in `Failed=`) |
+
+### Reading the remediation line
+
+Shown in the *Remediation output* column:
+
+```text
+WUO|v1|Remediated|Fixed=SVC_DISABLED_wuauserv|Failed=|Suppressed=|AdminAction=POLICY_CONFLICT_DONOTCONNECT
+```
+
+| Field | Meaning |
+|---|---|
+| `Fixed=` | Fixes applied in this run |
+| `Failed=` | Fixes that were tried and failed. The reason is in the IntuneWUO log and event `3500+n` |
+| `Suppressed=` | Fixes not tried, because the same fix was already needed `FixMaxRepeats` (3) times in 7 days. Something keeps undoing it: find and fix that source |
+| `AdminAction=` | Warning or Critical flags the script never changes. A person has to fix them at their source |
+
+Two other remediation lines can appear. `WUO|v1|NoAction|Busy` means another Intune-WUO run held the lock, so nothing was done this time. `WUO|v1|Error|<message>` means the remediation script itself failed (it exits 1, so Intune shows the remediation as failed).
+
+A fixable flag that is in neither `Fixed=` nor `Failed=` was skipped for a reason given in the log, for example `UPDATE_OVERDUE` blocked by a pending restart, or the fix's setting being off.
+
+### Severity
+
+| Severity | Meaning |
+|---|---|
+| **Critical** | Windows Update or Autopatch updates are blocked on this device |
+| **Warning** | Updates are at risk, delayed or not reported correctly |
+| **Info** | Worth knowing. Never makes the device `NonCompliant` and never fails detection |
+
+In the tables below, **fixable (`Setting`)** means the remediation script fixes it when that setting is `1`. **Report only** means the scripts never change it. The event ID is the one written to the `IntuneWUO` event log when the flag is found (Warning and Critical only). The matching fix event is that number + 1000, and a failed fix is + 1500.
+
+### Update installation and device health
+
+| Flag | Raised when | Remediation script | What you do |
+|---|---|---|---|
+| **`UPDATE_OVERDUE`**<br>Warning · fixable (`InstallOverdueUpdates`) · event 2027 | Windows Update offers an approved quality or security update (so Autopatch or the ring approved it) and it is still not installed after its release date + the ring's quality deferral (`DeferQualityUpdatesPeriodInDays`) + the ring's quality deadline (`ConfigureDeadlineForQualityUpdates`, 7 if not set) + `FallbackGraceDays` (3). Drivers, feature updates, Defender definition updates and optional updates never count | Installs exactly those updates through the Windows Update API, from the service the device already uses. Never restarts. Doesn't install when a restart is already pending, free disk is below `MinFreeDiskGB`, another install is running, the device is on battery, or native maintenance windows are configured (event 4003 names the reason). Gives up on an update after `FallbackMaxAttempts` (3) failures. Events 4001 (installed) and 4002 (failed, with HResult) | Usually nothing: it clears after the next restart. If it stays: look for `RESTART_PENDING` or `DISK_LOW` next to it, read event 4002/4003 or the IntuneWUO log for the reason, check the Autopatch release status, and check proxy or TLS inspection to Windows Update. The KB number is in the IntuneWUO log and event, not in the status line |
+| **`SCAN_STALE`**<br>Warning · fixable (`FixResetStack`, **off by default**) · event 2016 | The last *successful* Windows Update scan is older than `ScanStaleDays` (7). A device that has never recorded a successful scan isn't flagged | With `FixResetStack` = 1: stops the update services, renames `SoftwareDistribution` and `catroot2` (keeping only the newest backup), starts the services again. At most once per `ResetCooldownDays` (7), and never during an install or with a restart pending. **Side effect:** the update history list in Settings is cleared (installed updates stay installed). With the default `0` it does nothing | Check that the device can reach Windows Update (proxy, firewall, TLS inspection) and has no WSUS leftover (`WSUS_REMNANT`). If scans are broken, turn on `FixResetStack` for that group, or run the reset by hand |
+| **`DISK_LOW`**<br>Warning · fixable (`FixSyncAndCleanup`) · event 2017 | Free space on the system drive is below `MinFreeDiskGB` (20 GB) | Deletes files older than 7 days from `C:\Windows\Temp` and runs `DISM /Online /Cleanup-Image /StartComponentCleanup` (20-minute limit) | If it stays: free space (user data, OneDrive *Free up space*, old profiles, a larger disk). While it stays low, overdue updates aren't installed and feature updates are likely to fail |
+| **`RESTART_PENDING`**<br>Info · report only | A servicing restart (`Component Based Servicing\RebootPending`) or a Windows Update restart (`WindowsUpdate\Auto Update\RebootRequired`) is waiting | Nothing. Intune-WUO never restarts a device. It also doesn't install overdue updates until the restart has happened | Usually nothing: the ring's deadline and grace period force the restart. If devices sit in this state for weeks, shorten `ConfigureDeadlineGracePeriod` or use native maintenance windows |
+| **`SYNC_STALE`**<br>Warning · fixable (`FixSyncAndCleanup`) · event 2015 | The enrollment's Intune sync tasks haven't run for more than `SyncStaleHours` (24) | Starts the enrollment's `PushLaunch` sync task | If it stays: check network access to the Intune endpoints, the MDM certificate, and the device's Entra join state |
+
+### Update services
+
+All six are **fixable (`FixServices`)**. A service is flagged only when its start type is *Disabled*. A stopped service with a manual or trigger start is healthy and isn't flagged. A fix that keeps being needed is suppressed after `FixMaxRepeats` (3) times in 7 days and shown under `Suppressed=`.
+
+| Flag | Raised when | Remediation script | What you do |
+|---|---|---|---|
+| **`SVC_DISABLED_wuauserv`**<br>Critical · event 2005 | Windows Update service is disabled: nothing can be scanned or installed | Sets the start type to Manual (the default) | If it comes back: find the security baseline, hardening script or "update blocker" tool that disables it |
+| **`SVC_DISABLED_UsoSvc`**<br>Critical · event 2006 | Update Orchestrator is disabled: scans and installs are never scheduled | Sets the start type to Automatic and starts it | Same as above |
+| **`SVC_DISABLED_wlidsvc`**<br>Critical · event 2009 | Microsoft Account Sign-In Assistant is disabled. Autopatch and the Windows Update for Business deployment service need it, so Autopatch-managed updates can't reach the device | Sets the start type to Manual | Hardening baselines often disable it. Add an exception for it |
+| **`SVC_DISABLED_BITS`**<br>Warning · event 2007 | Background Intelligent Transfer Service is disabled: downloads fail | Sets the start type to Manual | Find what disables it |
+| **`SVC_DISABLED_DiagTrack`**<br>Warning · event 2010 | Connected User Experiences and Telemetry is disabled: Autopatch gets no diagnostic data from the device, so its reports are wrong | Sets the start type to Automatic and starts it | Review privacy or hardening baselines |
+| **`SVC_DISABLED_WaaSMedicSvc`**<br>Warning · event 2008 | Windows Update Medic Service is disabled | Tries to set Manual. Windows protects this service, so the attempt **is expected to fail** and is listed under `Failed=` | Almost always a third-party update blocker. Remove the tool, then repair the service by hand |
+
+### Pauses
+
+| Flag | Raised when | Remediation script | What you do |
+|---|---|---|---|
+| **`PAUSE_QUALITY_USER`**<br>Warning · fixable (`FixPauses`) · event 2011 | Quality updates are paused (`PausedQualityStatus`) and no Intune policy pause exists, so a user or a local tool paused them | Removes the user pause values (`PauseQualityUpdatesStartTime`/`EndTime`, `PauseUpdatesStartTime`/`ExpiryTime`) from `HKLM\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings` | Set `SetDisablePauseUXAccess` = 1 (*Option to pause Windows updates: Disable*) in the update ring so users can't pause |
+| **`PAUSE_FEATURE_USER`**<br>Warning · fixable (`FixPauses`) · event 2012 | Feature updates are paused (`PausedFeatureStatus`) and no Intune policy pause exists | Removes `PauseFeatureUpdatesStartTime`/`EndTime` from the same key | Same as above |
+| **`PAUSE_POLICY`**<br>Info · report only | Quality updates are paused by Intune policy (`PauseQualityUpdates` or `PauseQualityUpdatesStartTime`) | Nothing. A policy pause is never touched | Nothing, if the pause is intended. A policy pause lasts 35 days from its start date. Resume it in the update ring if it isn't intended |
+
+### Group Policy, WSUS and ConfigMgr
+
+All **report only**: domain Group Policy or ConfigMgr would put a deleted value straight back, so the fix belongs at the source. The values found are in `V=`. These flags don't fail detection unless `FailOnReportOnly` = 1, and the remediation lists them under `AdminAction=`.
+
+| Flag | Raised when | What you do |
+|---|---|---|
+| **`POLICY_CONFLICT_DONOTCONNECT`**<br>Critical · event 2000 | `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\DoNotConnectToWindowsUpdateInternetLocations` = 1. The device can't reach Windows Update online, which breaks Autopatch. Autopatch flags the same value. **Any other value (for example 0 from a GPO set to *Disabled*) is reported as Info**: it blocks nothing, it's only a leftover | Find the source: `gpresult /h report.html` (domain GPO), ConfigMgr client settings, an imaging or hardening script. Remove it there. On Windows 11 24H2 build 26100.8973 and later, deploy the Intune setting `Update/IgnoreWindowsUpdateGroupPolicies` = 1 so Windows ignores every Windows Update Group Policy |
+| **`POLICY_CONFLICT_DISABLEWUACCESS`**<br>Critical · event 2001 | `...\WindowsUpdate\DisableWindowsUpdateAccess` = 1: access to all Windows Update features is removed. Other values are Info | Same as above |
+| **`POLICY_CONFLICT_NOAUTOUPDATE`**<br>Critical · event 2002 | `...\WindowsUpdate\AU\NoAutoUpdate` = 1: automatic updates are switched off. Other values are Info | Same as above |
+| **`WSUS_REMNANT`**<br>Warning · event 2003 | WSUS is in effect: Group Policy `AU\UseWUServer` = 1, or Intune sets `UpdateServiceUrl`. The device scans the WSUS server instead of Windows Update. `V=` shows `UseWUServer=1` and the server address. **Info** when only a `WUServer` address is left without `UseWUServer` = 1: Windows Update ignores it | Remove the WSUS settings at their source. The ConfigMgr client writes them as *local* policy, and they survive uninstalling the client. If WSUS has to stay for other products, set the `SetPolicyDrivenUpdateSourceFor*Updates` policies to 0 (Windows Update) for quality, feature, driver and other updates. Their default is 1 (WSUS) |
+| **`DUALSCAN_CONFLICT`**<br>Critical · event 2004 | WSUS is in effect **and** `DisableDualScan` = 1: the device never scans Windows Update, so Autopatch-approved updates never arrive | Remove `DisableDualScan` and the WSUS settings, or set `SetPolicyDrivenUpdateSourceFor*Updates` to 0 |
+| **`CONFIGMGR_PRESENT`**<br>Info | Any of: the `CcmExec` service exists (the ConfigMgr client is installed), the `HKLM\SOFTWARE\Microsoft\CCM` key, or the `C:\Windows\ccmsetup` folder. `V=` tells them apart: `CcmExec=Running` means the client is installed, `CCMKey,ccmsetupFolder` alone means leftovers from an uninstall | **Client installed:** on a co-managed device, move the *Windows Update policies* and *Device configuration* workloads to Intune, and switch off *Software Updates* in the ConfigMgr client settings. **Leftovers only:** harmless on their own, but check for `WSUS_REMNANT`, which the client often leaves behind |
+| **`DIAGDATA_LOW`**<br>Warning · event 2014 | `AllowTelemetry` is 0 (from Intune `System/AllowTelemetry`, or the Group Policy `DataCollection` key if Intune doesn't set it). Autopatch needs *Required* (1) or higher. Not flagged when the value isn't set | Deploy `System/AllowTelemetry` = 1 (*Required*) or higher from Intune, and remove the Group Policy that sets 0 |
+
+### Windows Autopatch
+
+All **report only**. Read from the Autopatch Client Broker (`HKLM\SOFTWARE\Microsoft\WindowsAutopatch\ClientBroker` and its `ClientBroker.log`).
+
+| Flag | Raised when | What you do |
+|---|---|---|
+| **`AUTOPATCH_READINESS_FAILED`**<br>Warning · event 2024 | The broker's latest device readiness check has a non-zero `ResultsBitmask` or error codes | Open **Windows Autopatch › Devices** (*Not ready* tab) and the Autopatch alerts for the reason. The details are in `C:\ProgramData\Microsoft\AutopatchClientBroker\Logs\ClientBroker.log` |
+| **`AUTOPATCH_READINESS_STALE`**<br>Warning · event 2025 | The broker hasn't recorded a readiness check for more than 7 days | Check that the Windows Autopatch Client Broker app is installed and running, and read `ClientBroker.log` |
+| **`AUTOPATCH_BROKER_ABSENT`**<br>Info | The Client Broker isn't installed, so Autopatch's on-device readiness result and the ring aren't available. Shown on any device without the broker, including devices not in Autopatch | Optional. To get the readiness checks: **Tenant administration › Windows Autopatch › Tenant management › Manage client broker**. Ignore on devices that don't use Autopatch |
+
+### Hotpatch
+
+All **report only**, and **not raised yet**: they need the device's hotpatch enrollment, which isn't read yet (see [Roadmap](#roadmap)). Intune-WUO never changes VBS, CHPE or the hotpatch policy.
+
+| Flag | Raised when | What you do |
+|---|---|---|
+| **`HOTPATCH_UNSUPPORTED_OS`**<br>Warning · event 2020 | Hotpatch-enrolled device below Windows 11 24H2 (build 26100) | Upgrade the device, or exclude it from the hotpatch policy |
+| **`HOTPATCH_VBS_NOT_RUNNING`**<br>Warning · event 2021 | Hotpatch-enrolled device where virtualization-based security isn't running | Deploy a policy that turns VBS on (Policy CSP `DeviceGuard/EnableVirtualizationBasedSecurity`, or the `VirtualizationBasedTechnology` CSP), then restart |
+| **`HOTPATCH_CHPE_ENABLED`**<br>Warning · event 2022 | Hotpatch-enrolled Arm64 device where `HotPatchRestrictions` isn't 1 (CHPE still on) | Deploy `System/DisableCHPE`, then restart. This can affect 32-bit x86 apps on Arm |
+
+### Win32 app edition only
+
+| Flag | Raised when | What you do |
+|---|---|---|
+| **`FALLBACK_TASK_MISSING`**<br>Warning · fixable (`FixServices`) · event 2023 | Mode is `RemediateAndFallback` but the `\IntuneWUO\IntuneWUO-Fallback` scheduled task is missing or disabled. Never raised by the standalone package | The remediation registers the task again. If it keeps disappearing, check the Win32 app assignment and anything that removes scheduled tasks |
+
+### Common combinations
+
+| You see | What it usually means | Order to fix |
+|---|---|---|
+| `UPDATE_OVERDUE` + `RESTART_PENDING` | The update (or an earlier one) is installed and waiting for a restart. The install is held until then | Wait for the ring deadline, or restart the device. It should then show `Compliant` |
+| `UPDATE_OVERDUE` + `DISK_LOW` | Not enough space to install | Free space. The next remediation run installs the update |
+| `DISK_LOW` + `SCAN_STALE` + `UPDATE_OVERDUE` + `RESTART_PENDING` | A device that has fallen behind: the restart and low disk are holding everything else back | 1. Restart. 2. Free disk space. 3. Let the next run clean up and install. 4. If `SCAN_STALE` remains, check network access to Windows Update, then turn on `FixResetStack` for that device's group |
+| `POLICY_CONFLICT_DONOTCONNECT` + `WSUS_REMNANT` + `CONFIGMGR_PRESENT` | A device migrated from ConfigMgr/WSUS with its old update policy still in place | Use `V=` and `gpresult /h` to find the source. Remove the WSUS and Group Policy values there, or deploy `IgnoreWindowsUpdateGroupPolicies` = 1 where supported |
+| `WSUS_REMNANT` (Info) + `CONFIGMGR_PRESENT` with `CCMKey,ccmsetupFolder` | Harmless leftovers from a ConfigMgr uninstall. The WSUS address is ignored because `UseWUServer` isn't 1 | Optional clean-up only |
+| The same fix under `Suppressed=` | Something re-applies the setting the fix keeps changing (Group Policy, a ConfigMgr baseline, a hardening script) | Find that source. Intune-WUO stops fighting it on purpose |
 
 ---
 
@@ -521,7 +670,7 @@ Open the package's **Device status** and add the *Pre-remediation detection outp
 WUO|v1|NonCompliant|Mode=Script|Build=26100|Ring=Test|F=SVC_DISABLED_wuauserv,PAUSE_QUALITY_USER
 ```
 
-`Compliant` / `NonCompliant` is the verdict, `Ring` is the Autopatch ring the Client Broker reports, and `F=` lists the finding ids, most severe first. Look each one up in [docs/findings.json](docs/findings.json) (or ask the MCP server's `wuo_interpret_status`).
+`Compliant` / `NonCompliant` is the verdict, `Ring` is the Autopatch ring the Client Broker reports, and `F=` lists the flags, most severe first. Look each one up in the [Status flags reference](#status-flags-reference) (or ask the MCP server's `wuo_interpret_status`).
 
 ### Step 4: Turn on fixes
 

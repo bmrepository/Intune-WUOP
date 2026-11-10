@@ -89,7 +89,7 @@
       "autoFix": "Services",
       "title": "Windows Update Medic Service (WaaSMedicSvc) is disabled",
       "cause": "The service start type is Disabled.",
-      "toolAction": "Attempts to set Manual. Windows protects this service, so the attempt is expected to fail and is reported as a failed fix.",
+      "toolAction": "Attempts to set Manual. Windows protects this service, so the attempt is expected to fail and is listed under Failed= in the remediation output (the remediation then exits 1).",
       "adminAction": "Investigate manually; usually caused by third-party 'update blocker' tools."
     },
     {
@@ -142,7 +142,7 @@
       "severity": "Warning",
       "autoFix": "None",
       "title": "Diagnostic data is below Required",
-      "cause": "AllowTelemetry is 0. Windows Autopatch needs Required (1) or higher.",
+      "cause": "AllowTelemetry is 0, read from the Intune System/AllowTelemetry policy or, when Intune does not set it, from the Group Policy DataCollection key. Windows Autopatch needs Required (1) or higher. Not raised when the value is not set.",
       "toolAction": "Reports only.",
       "adminAction": "Deploy System/AllowTelemetry = 1 (Required) or higher through Intune."
     },
@@ -160,7 +160,7 @@
       "severity": "Warning",
       "autoFix": "ResetStack",
       "title": "No successful Windows Update scan within ScanStaleDays",
-      "cause": "The Windows Update stack is probably broken or blocked.",
+      "cause": "The last successful Windows Update scan is older than ScanStaleDays (default 7): the update stack is probably broken, or the device cannot reach Windows Update. A device with no recorded successful scan is not flagged.",
       "toolAction": "Resets the update components (renames SoftwareDistribution and catroot2), at most once per ResetCooldownDays and never during an install or with a restart pending. SIDE EFFECT: this also resets the Windows Update history list shown in Settings (installed updates stay installed). Only the newest backup folder is kept. Runs only when FixResetStack = 1 (off by default).",
       "adminAction": "If scans still fail after a reset, check proxy/TLS inspection and WSUS leftovers."
     },
@@ -179,7 +179,7 @@
       "autoFix": "None",
       "title": "A restart is pending",
       "cause": "A servicing or Windows Update restart is waiting.",
-      "toolAction": "Reports only. Intune-WUO never restarts a device.",
+      "toolAction": "Reports only. Intune-WUO never restarts a device, and it does not install overdue updates while a restart is pending.",
       "adminAction": "Restarts follow the ring deadline and grace period. Consider native maintenance windows."
     },
     {
@@ -214,7 +214,7 @@
       "severity": "Info",
       "autoFix": "None",
       "title": "Windows Autopatch Client Broker is not installed",
-      "cause": "The optional broker is missing, so Autopatch's on-device readiness result is unavailable.",
+      "cause": "The optional broker is missing (no HKLM\\SOFTWARE\\Microsoft\\WindowsAutopatch\\ClientBroker key), so Autopatch's on-device readiness result and the ring are unavailable. Shown on any device without the broker, including devices that do not use Autopatch.",
       "toolAction": "Reports only.",
       "adminAction": "Install it from Intune admin center > Tenant administration > Windows Autopatch > Tenant management > Manage client broker."
     },
@@ -243,7 +243,7 @@
       "title": "Hotpatch needs virtualization-based security running",
       "cause": "VBS is not running on a hotpatch-enrolled device.",
       "toolAction": "Reports only. Never changes VBS.",
-      "adminAction": "Deploy the Intune policy VirtualizationBasedTechnology (VBS), then restart."
+      "adminAction": "Deploy a policy that turns VBS on (Policy CSP DeviceGuard/EnableVirtualizationBasedSecurity, or the VirtualizationBasedTechnology CSP), then restart."
     },
     {
       "id": "HOTPATCH_CHPE_ENABLED",
@@ -259,7 +259,7 @@
       "severity": "Warning",
       "autoFix": "Updates",
       "title": "An approved quality update is overdue",
-      "cause": "Windows Update has offered a quality or security update (so Autopatch approved it) for longer than the ring deadline (ConfigureDeadlineForQualityUpdates, default 7) plus FallbackGraceDays, counted from its release date plus the ring deferral (DeferQualityUpdatesPeriodInDays), and it is still not installed.",
+      "cause": "Windows Update has offered a quality or security update (so Autopatch approved it) for longer than the ring deadline (ConfigureDeadlineForQualityUpdates, default 7) plus FallbackGraceDays, counted from its release date plus the ring deferral (DeferQualityUpdatesPeriodInDays), and it is still not installed. Drivers, feature updates, Defender definition updates and optional updates never count.",
       "toolAction": "Installs exactly the overdue offered updates through the native Windows Update API (default service, no drivers, no feature updates), never restarts, and stops after FallbackMaxAttempts failures. Skipped when a restart is pending, disk is low, an install is running, the device is on battery or native maintenance windows are configured.",
       "adminAction": "If it keeps failing, read the HResult in the IntuneWUO log and Get-WindowsUpdateLog; check disk space, proxy/TLS inspection and the Autopatch release status."
     }

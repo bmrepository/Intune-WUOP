@@ -7,8 +7,9 @@ This repository is **Intune-WUO**, an open-source Windows Update orchestration l
 1. **Connect the MCP server** if your client supports MCP (offline, read-only, no credentials):
    - stdio clients (Claude Code, Claude Desktop, Cursor, VS Code, Gemini CLI, Codex CLI): `npx -y github:bmrepository/Intune-WUOP`
    - remote clients (ChatGPT, Grok API): run `node mcp/server.mjs --http` behind HTTPS. See [docs/AI-AGENTS.md](docs/AI-AGENTS.md).
-2. **Or read the docs** in this order if you cannot use MCP: [docs/AI-AGENTS.md](docs/AI-AGENTS.md), then the README sections *Modes and switches*, *Prerequisites*, *Deployment guide*, then [docs/findings.json](docs/findings.json). A machine-friendly index is in [llms.txt](llms.txt).
-3. **Load the skill** if you are Claude Code: [skills/intune-wuo-deploy/SKILL.md](skills/intune-wuo-deploy/SKILL.md) (or install the plugin: `/plugin install intune-wuo --marketplace bmrepository/Intune-WUOP`).
+2. **Or read the docs** in this order if you cannot use MCP: [docs/AI-AGENTS.md](docs/AI-AGENTS.md), then the README sections *Settings*, *Status flags reference*, *Prerequisites*, *Deployment guide*, then [docs/findings.json](docs/findings.json). A machine-friendly index is in [llms.txt](llms.txt).
+3. **To explain a device's status line** (`WUO|v1|...`), use `wuo_interpret_status` / `wuo_explain_finding`, or the README section *Status flags reference*, which lists every flag with its trigger, the remediation's action, the admin's action and its event ID.
+4. **Load the skill** if you are Claude Code: [skills/intune-wuo-deploy/SKILL.md](skills/intune-wuo-deploy/SKILL.md) (or install the plugin: `/plugin install intune-wuo --marketplace bmrepository/Intune-WUOP`).
 
 ## Continuing development
 

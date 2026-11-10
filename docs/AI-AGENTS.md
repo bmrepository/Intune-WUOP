@@ -234,6 +234,10 @@ The manual version is in the README *Deployment guide*; the skill's section 7 li
 5. After each phase, run the validation checks, and read device status lines back with `wuo_interpret_status`.
 6. Promote one stage at a time. It will not skip stages.
 
+### Reading device results
+
+Each device reports a `WUO|v1|...` status line. Pass it to `wuo_interpret_status`, or look up every flag in the README [Status flags reference](../README.md#status-flags-reference): what triggers it, whether the remediation fixes it (and with which setting), what the admin should do, and the event ID it writes. Flags without a fix are listed under `AdminAction=` in the remediation output.
+
 ## What to ask
 
 - *"Deploy Intune-WUO to my tenant. The pilot group is `WUO-Pilot`; after that use my Autopatch ring groups in order. I can sign in with Graph PowerShell."*

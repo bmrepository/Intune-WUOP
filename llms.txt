@@ -13,6 +13,7 @@
 
 ## Project documentation
 - [README](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/README.md): what it does, settings, registry and CSP reference, deployment guide
+- [Status flags reference (README section)](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/README.md): the "Status flags reference" section explains every flag in the device status line (F=, V=, Fixed=, Failed=, Suppressed=, AdminAction=), what triggers it, what the remediation does, what the admin should do, and its event ID
 - [Design](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/docs/DESIGN.md): components, finding catalogue, guardrails, fallback rules, event ids
 - [Findings catalogue (JSON)](https://raw.githubusercontent.com/bmrepository/Intune-WUOP/main/docs/findings.json): every finding id with cause, tool action and admin action
 
