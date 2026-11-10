@@ -34,6 +34,8 @@ export function parseStatusLine(line) {
   out.failed = splitIds(out.fields.Failed);
   out.suppressed = splitIds(out.fields.Suppressed);
   out.adminAction = splitIds(out.fields.AdminAction);
+  // V= holds the values behind the findings (for example DoNotConnectToWindowsUpdateInternetLocations=1), ';'-separated.
+  out.values = out.fields.V ? out.fields.V.split(';').map((s) => s.trim()).filter(Boolean) : [];
   out.mode = out.fields.Mode;
   out.build = out.fields.Build ? Number(out.fields.Build) : undefined;
   out.ring = out.fields.Ring;
@@ -48,7 +50,7 @@ export function interpretStatus(parsed, catalogue) {
       : { id, severity: 'Unknown', autoFix: 'Unknown', title: 'Not in the catalogue', cause: 'This id is newer than the catalogue the agent is using, or it is mistyped.', toolAction: '', adminAction: 'Update the project (git pull) and check docs/findings.json.' };
   };
 
-  const summary = { result: parsed.result, mode: parsed.mode, build: parsed.build, ring: parsed.ring };
+  const summary = { result: parsed.result, mode: parsed.mode, build: parsed.build, ring: parsed.ring, values: parsed.values ?? [] };
   const next = [];
 
   if (parsed.result === 'Error') {
@@ -89,7 +91,10 @@ export function interpretStatus(parsed, catalogue) {
   if (fixable.length && parsed.mode === 'Script') next.push(`Standalone package. ${fixable.length} finding(s) are auto-fixable (${fixable.map((f) => f.id).join(', ')}). If the package has the remediation script and fixes are on for this device's assignment, Intune ran it right after this detection: see the remediation status and post-remediation output. If the package is detection only, nothing was changed; add Remediate-IntuneWUO.ps1 to fix them (wuo_package_requests, action enable-fixes).`);
   if (fixable.length && (parsed.mode === 'Remediate' || parsed.mode === 'RemediateAndFallback')) next.push('These are auto-fixable; the next Remediation run (every 8 hours) will apply them. If they persist, check for repeated-fix suppression.');
   const reportOnly = findings.filter((f) => f.autoFix === 'None' && f.severity !== 'Info');
-  if (reportOnly.length) next.push(`Report-only findings need an administrator: ${reportOnly.map((f) => f.id).join(', ')}.`);
+  if (reportOnly.length) {
+    next.push(`Report-only findings need an administrator: ${reportOnly.map((f) => f.id).join(', ')}.${(parsed.values ?? []).length ? ` Values found on the device: ${parsed.values.join('; ')}.` : ''}`);
+    if (parsed.mode === 'Script') next.push('The remediation never changes report-only findings. Since 1.1.0 they do not fail detection (unless FailOnReportOnly = 1), so they no longer show as "Recurred" in Intune; older versions recur on every run by design.');
+  }
   if (parsed.overflow > 0) next.push(`${parsed.overflow} more finding(s) did not fit in the 2,048-character status line. Read IntuneWUO.jsonl on the device for the full list.`);
 
   return { summary, explanation: `NonCompliant: ${critical.length} Critical, ${warning.length} Warning, ${info.length} Info finding(s).`, findings, nextSteps: next };

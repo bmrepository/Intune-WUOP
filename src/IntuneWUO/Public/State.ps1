@@ -99,9 +99,15 @@ function Get-WUOState {
     }
     catch { $errors['DeviceGuard'] = $_.Exception.Message; $state.DeviceGuard = $null }
 
+    # The CcmExec service means the client is installed; the key or the ccmsetup folder alone are leftovers an
+    # uninstall often leaves behind.
+    $ccmSvc = Get-Service -Name CcmExec -ErrorAction SilentlyContinue
     $state.ConfigMgr = @{
-        Present = (Test-Path 'HKLM:\SOFTWARE\Microsoft\CCM') -or (Test-Path (Join-Path $env:windir 'ccmsetup'))
+        Service     = $(if ($ccmSvc) { [string]$ccmSvc.Status } else { $null })
+        Key         = (Test-Path 'HKLM:\SOFTWARE\Microsoft\CCM')
+        SetupFolder = (Test-Path (Join-Path $env:windir 'ccmsetup'))
     }
+    $state.ConfigMgr.Present = [bool]($state.ConfigMgr.Service -or $state.ConfigMgr.Key -or $state.ConfigMgr.SetupFolder)
 
     try {
         $au = New-Object -ComObject Microsoft.Update.AutoUpdate

@@ -16,7 +16,7 @@ Status: v1.0. The engine is implemented and unit-tested, its fixes were validate
 | Component | File(s) | Runs as | Notes |
 |---|---|---|---|
 | Engine module | `src/IntuneWUO/` | - | Everything below is a function in this module |
-| Detection script | `remediation/Detect-IntuneWUO.ps1` | SYSTEM, 64-bit, Remediations | Generated. Exit 1 on any Warning or Critical finding, so a detection-only package reports *With issues*. Any internal error exits 0 so a bug can never trigger remediation |
+| Detection script | `remediation/Detect-IntuneWUO.ps1` | SYSTEM, 64-bit, Remediations | Generated. Exit 1 only when a Warning or Critical finding is one the remediation can act on (auto-fixable, its switch on, a fix action exists: `Test-WUODetectionShouldFail`), so report-only findings never make Intune show *Recurred*; `FailOnReportOnly` = 1 restores exit 1 on any Warning or Critical finding. Any internal error exits 0 so a bug can never trigger remediation |
 | Remediation script | `remediation/Remediate-IntuneWUO.ps1` | SYSTEM, 64-bit, Remediations | Generated. Re-collects state and applies fixes under the shared lock, including the overdue-update install |
 | Templates and settings | `src/Standalone/` | - | `Detect.template.ps1`, `Remediate.template.ps1`, `Settings.ps1` |
 | Build | `build/Build-RemediationScripts.ps1` | developer | Embeds every `src/IntuneWUO/Public/*.ps1` (in the module's load order) inside `New-Module { ... }` so the code runs with the same scoping and strict mode as the tested module, inserts the settings block, and checks ASCII-only, no BOM and that the result parses |
@@ -50,6 +50,7 @@ Validated by `ConvertTo-WUOConfig`. An invalid value is ignored (default used) a
 | `FixServices`, `FixPauses`, `FixSyncAndCleanup` | 1 | 1 | 0/1 | Per-category fix switches |
 | `FixPolicyKeys` | 1 | - | 0/1 | No fix uses it yet (see limitations) |
 | `FixResetStack` | 0 | 0 | 0/1 | Allows the update-stack reset (it wipes the Windows Update history list) |
+| `FailOnReportOnly` | 0 | 0 | 0/1 | Standalone detection: 1 = any Warning or Critical finding fails detection, including report-only ones (which then recur after every remediation) |
 | `InstallOverdueUpdates` | 0 | 1 | 0/1 | Lets `Remediate` install overdue updates. `RemediateAndFallback` always may; `ReportOnly` and `Off` never do |
 
 `HKLM\SOFTWARE\IntuneWUO\State` is tool-owned: `FixLast_<id>`, `FixCount_<id>`, `ActionLast_<action>`, `FirstSeen_<updateId>`, `Attempts_<updateId>`. Detection writes `FirstSeen_*` only.
@@ -129,7 +130,7 @@ The standalone scripts always use **native WUA COM**. In the Win32 edition, `Get
 
 ## 8. Reporting
 
-- **Detection output**, one line, at most 2,048 characters: `WUO|v1|<Compliant|NonCompliant|Disabled>|Mode=<Script or mode>|Build=<n>[|Ring=<ring>]|F=<ids, most severe first>[+N]`. `NonCompliant` means at least one Warning or Critical finding. A script failure prints `WUO|v1|Error|<message>`.
+- **Detection output**, one line, at most 2,048 characters: `WUO|v1|<Compliant|NonCompliant|Disabled>|Mode=<Script or mode>|Build=<n>[|Ring=<ring>]|F=<ids, most severe first>[+N][|V=<values>]`. `V=` lists the evidence behind the findings (registry values, ConfigMgr markers), `;`-separated, in the room left after the ids. `NonCompliant` means at least one Warning or Critical finding, even when it is report-only and detection exits 0. A script failure prints `WUO|v1|Error|<message>`.
 - **Remediation output:** `WUO|v1|Remediated|Fixed=...|Failed=...|Suppressed=...|AdminAction=<report-only Warning/Critical ids>` (the Win32 edition omits `AdminAction`).
 - **Logs:** `IntuneWUO.jsonl` and `IntuneWUO.log` (CMTrace) in the IME logs folder `IntuneWUO\`, rotated at 5 MB. Falls back to `%TEMP%\IntuneWUO` when the folder is not writable. Logging never throws.
 - **Event log `IntuneWUO`** (created by the first SYSTEM run in the standalone package, by the app installer in the Win32 edition): `1001` run complete, `1002` Off, `2000+n` finding n, `3000+n` fix n applied, `3500+n` fix n failed, `4001` installed, `4002` failed, `4003` skipped or blocked, `4004` nothing overdue, `9000` error. `n` is the finding's position in the known-findings list in `Events.ps1` (unknown = 99); new findings are appended so ids stay stable.

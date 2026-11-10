@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Intune-WUO remediation script (Intune Remediations). Version 1.0.0. Self-contained: nothing to install.
+    Intune-WUO remediation script (Intune Remediations). Version 1.1.0. Self-contained: nothing to install.
 .DESCRIPTION
     Intune runs this only after the detection script exits 1. It checks the device again (so it acts on current
     facts) and applies the fixes the settings block allows:
@@ -32,6 +32,7 @@ $WUOSettings = @{
     FixSyncAndCleanup     = 1    # start an Intune sync when the last one is stale; clean up when disk space is low
     InstallOverdueUpdates = 1    # install approved quality updates that are overdue (never drivers or feature updates; never restarts)
     FixResetStack         = 0    # reset the update stack when scans keep failing (side effect: wipes the Windows Update history list)
+    FailOnReportOnly      = 0    # 1 = report-only findings (Group Policy, WSUS, ConfigMgr...) also fail detection; they then show as "Recurred" after every remediation run
     FallbackGraceDays     = 3    # days after the ring deadline before an offered update counts as overdue
     FallbackMaxAttempts   = 3    # failed install attempts per update before giving up on it
     MinFreeDiskGB         = 20   # below this, report DISK_LOW and do not install
@@ -41,7 +42,7 @@ $WUOSettings = @{
     FixMaxRepeats         = 3    # a fix needed this many times in 7 days is suppressed (something else keeps undoing it)
 }
 
-$WUOScriptVersion = '1.0.0'
+$WUOScriptVersion = '1.1.0'
 
 #region IntuneWUO engine (generated, do not edit)
 New-Module -Name IntuneWUO -ScriptBlock {
@@ -129,6 +130,9 @@ function ConvertTo-WUOConfig {
         # Lets the Remediate mode install overdue approved quality updates (the standalone Remediations package
         # turns it on; RemediateAndFallback always installs).
         InstallOverdueUpdates = $false
+        # Off: detection fails (exit 1) only for findings the remediation can fix, so report-only findings do not
+        # show as "Recurred" in Intune on every run. On: any Warning or Critical finding fails detection.
+        FailOnReportOnly    = $false
         Warnings            = @()
     }
 
@@ -157,7 +161,7 @@ function ConvertTo-WUOConfig {
         else { $warnings.Add("Invalid $name '$($Raw[$name])'; using default $($cfg[$name])") }
     }
 
-    foreach ($name in 'FixServices', 'FixPauses', 'FixPolicyKeys', 'FixSyncAndCleanup', 'FixResetStack', 'InstallOverdueUpdates') {
+    foreach ($name in 'FixServices', 'FixPauses', 'FixPolicyKeys', 'FixSyncAndCleanup', 'FixResetStack', 'InstallOverdueUpdates', 'FailOnReportOnly') {
         if (-not $Raw.ContainsKey($name)) { continue }
         $v = [string]$Raw[$name]
         if ($v -in '0', '1') { $cfg[$name] = ($v -eq '1') }
@@ -649,9 +653,11 @@ function New-WUOFinding {
         [Parameter(Mandatory)][string]$Message,
         # Which Fix* switch would cover an automatic fix. 'None' means report-only.
         [ValidateSet('None', 'Services', 'Pauses', 'PolicyKeys', 'SyncAndCleanup', 'ResetStack', 'Updates')][string]$AutoFix = 'None',
-        [string]$Source = ''
+        [string]$Source = '',
+        # The value that triggered the finding (for example 'WUServer=http://wsus:8530'), shown in the status line.
+        [string]$Evidence = ''
     )
-    [pscustomobject]@{ Id = $Id; Severity = $Severity; Message = $Message; AutoFix = $AutoFix; Source = $Source }
+    [pscustomobject]@{ Id = $Id; Severity = $Severity; Message = $Message; AutoFix = $AutoFix; Source = $Source; Evidence = $Evidence }
 }
 
 function Get-WUOFinding {
@@ -671,28 +677,46 @@ function Get-WUOFinding {
     $gpo = if ($State.Gpo) { $State.Gpo } else { @{} }
     $gpoAu = if ($State.GpoAU) { $State.GpoAU } else { @{} }
 
-    # Values Windows Autopatch itself flags as conflicting (any value counts).
+    # Values Windows Autopatch flags as conflicting. Only 1 blocks Windows Update; a leftover 0 (for example from a
+    # GPO set to Disabled) is harmless, so it is reported as Info and never fails detection.
     $conflicts = @(
         @{ Id = 'POLICY_CONFLICT_DONOTCONNECT'; Table = $gpo;   Name = 'DoNotConnectToWindowsUpdateInternetLocations' }
         @{ Id = 'POLICY_CONFLICT_DISABLEWUACCESS'; Table = $gpo; Name = 'DisableWindowsUpdateAccess' }
         @{ Id = 'POLICY_CONFLICT_NOAUTOUPDATE'; Table = $gpoAu; Name = 'NoAutoUpdate' }
     )
     foreach ($c in $conflicts) {
-        if ($c.Table.ContainsKey($c.Name)) {
-            # Source (domain GPO vs local policy) is not attributed yet, so nothing here is auto-fixable.
-            $findings.Add((New-WUOFinding -Id $c.Id -Severity Critical -Source 'Unknown' `
-                -Message "Policy value '$($c.Name)' is set ($($c.Table[$c.Name])); Windows Autopatch flags this as a conflict."))
+        if (-not $c.Table.ContainsKey($c.Name)) { continue }
+        $value = [string]$c.Table[$c.Name]
+        # Source (domain GPO vs local policy) is not attributed yet, so nothing here is auto-fixable.
+        if ($value -eq '1') {
+            $findings.Add((New-WUOFinding -Id $c.Id -Severity Critical -Source 'Unknown' -Evidence "$($c.Name)=$value" `
+                -Message "Policy value '$($c.Name)' is set to 1; Windows Autopatch flags this as a conflict."))
+        }
+        else {
+            $findings.Add((New-WUOFinding -Id $c.Id -Severity Info -Source 'Unknown' -Evidence "$($c.Name)=$value" `
+                -Message "Policy value '$($c.Name)' is present with value '$value', which does not block Windows Update. Remove the leftover at its source."))
         }
     }
 
-    $wsus = ($gpo['UseWUServer'] -eq 1) -or $gpo['WUServer'] -or $gpo['UpdateServiceUrl'] -or $pm['UpdateServiceUrl'] -or $gpoAu['UseWUServer'] -eq 1
-    if ($wsus) {
-        $findings.Add((New-WUOFinding -Id 'WSUS_REMNANT' -Severity Warning -Source 'Unknown' `
-            -Message 'An intranet update service (WSUS) is configured.'))
+    # WSUS is in effect when UseWUServer = 1 (Group Policy, under AU) or Intune sets UpdateServiceUrl. A WUServer or
+    # UpdateServiceUrl string without UseWUServer = 1 is a leftover the Windows Update client ignores.
+    $useWsus = ([string]$gpoAu['UseWUServer'] -eq '1') -or ([string]$gpo['UseWUServer'] -eq '1')
+    $wsusUrl = @($gpo['WUServer'], $gpo['UpdateServiceUrl'], $pm['UpdateServiceUrl']) | Where-Object { $_ } | Select-Object -First 1
+    $wsusEvidence = (@(
+        $(if ($useWsus) { 'UseWUServer=1' })
+        $(if ($wsusUrl) { "WUServer=$wsusUrl" })
+    ) | Where-Object { $_ }) -join ','
+    if ($useWsus -or $pm['UpdateServiceUrl']) {
+        $findings.Add((New-WUOFinding -Id 'WSUS_REMNANT' -Severity Warning -Source 'Unknown' -Evidence $wsusEvidence `
+            -Message 'An intranet update service (WSUS) is configured and in effect.'))
         if ($gpo['DisableDualScan'] -eq 1 -or $pm['DisableDualScan'] -eq 1) {
-            $findings.Add((New-WUOFinding -Id 'DUALSCAN_CONFLICT' -Severity Critical `
+            $findings.Add((New-WUOFinding -Id 'DUALSCAN_CONFLICT' -Severity Critical -Evidence 'DisableDualScan=1' `
                 -Message 'WSUS is configured and DisableDualScan is on; the device cannot scan Windows Update.'))
         }
+    }
+    elseif ($wsusUrl) {
+        $findings.Add((New-WUOFinding -Id 'WSUS_REMNANT' -Severity Info -Source 'Unknown' -Evidence $wsusEvidence `
+            -Message 'A WSUS server address is left in the registry but UseWUServer is not 1, so Windows Update ignores it.'))
     }
 
     foreach ($s in @($State.Services)) {
@@ -751,8 +775,15 @@ function Get-WUOFinding {
     }
 
     if ($State.ConfigMgr -and $State.ConfigMgr['Present']) {
-        $findings.Add((New-WUOFinding -Id 'CONFIGMGR_PRESENT' -Severity Info `
-            -Message 'ConfigMgr client present; confirm the Windows Update workload is on Intune.'))
+        $cm = $State.ConfigMgr
+        $cmEvidence = (@(
+            $(if ($cm.Contains('Service') -and $cm['Service']) { "CcmExec=$($cm['Service'])" })
+            $(if ($cm.Contains('Key') -and $cm['Key']) { 'CCMKey' })
+            $(if ($cm.Contains('SetupFolder') -and $cm['SetupFolder']) { 'ccmsetupFolder' })
+        ) | Where-Object { $_ }) -join ','
+        $msg = if ($cm.Contains('Service') -and $cm['Service']) { 'ConfigMgr client installed; confirm the Windows Update workload is on Intune.' }
+               else { 'ConfigMgr leftovers found (no CcmExec service); the client is not installed.' }
+        $findings.Add((New-WUOFinding -Id 'CONFIGMGR_PRESENT' -Severity Info -Evidence $cmEvidence -Message $msg))
     }
 
     # Autopatch's own verdict. A missing broker is informational: it is optional and not on every device.
@@ -922,6 +953,25 @@ function Test-WUOFixEnabled {
         'Updates'        { return ($Config.Mode -eq 'RemediateAndFallback') -or [bool]$Config.InstallOverdueUpdates }
         default          { return $false }
     }
+}
+
+function Test-WUODetectionShouldFail {
+    <#
+    .SYNOPSIS
+        Decides the standalone detection script's exit code. Intune runs the remediation only after exit 1, and shows
+        "Recurred" when detection still fails afterwards, so by default only findings the remediation can act on
+        (auto-fixable, switch on, with a fix action) fail detection. Report-only findings stay in the status line.
+        With FailOnReportOnly = 1, any Warning or Critical finding fails detection.
+    #>
+    [CmdletBinding()]
+    param([object[]]$Findings = @(), [Parameter(Mandatory)]$Config)
+
+    foreach ($f in $Findings) {
+        if ($f.Severity -notin 'Warning', 'Critical') { continue }
+        if ($Config.FailOnReportOnly) { return $true }
+        if ((Test-WUOFixEnabled -Finding $f -Config $Config) -and (Get-WUOFixActionName -Finding $f)) { return $true }
+    }
+    $false
 }
 
 function Get-WUOFixActionName {
@@ -1228,9 +1278,15 @@ function Get-WUOState {
     }
     catch { $errors['DeviceGuard'] = $_.Exception.Message; $state.DeviceGuard = $null }
 
+    # The CcmExec service means the client is installed; the key or the ccmsetup folder alone are leftovers an
+    # uninstall often leaves behind.
+    $ccmSvc = Get-Service -Name CcmExec -ErrorAction SilentlyContinue
     $state.ConfigMgr = @{
-        Present = (Test-Path 'HKLM:\SOFTWARE\Microsoft\CCM') -or (Test-Path (Join-Path $env:windir 'ccmsetup'))
+        Service     = $(if ($ccmSvc) { [string]$ccmSvc.Status } else { $null })
+        Key         = (Test-Path 'HKLM:\SOFTWARE\Microsoft\CCM')
+        SetupFolder = (Test-Path (Join-Path $env:windir 'ccmsetup'))
     }
+    $state.ConfigMgr.Present = [bool]($state.ConfigMgr.Service -or $state.ConfigMgr.Key -or $state.ConfigMgr.SetupFolder)
 
     try {
         $au = New-Object -ComObject Microsoft.Update.AutoUpdate
@@ -1325,6 +1381,21 @@ function Format-WUOStatus {
         $used++
     }
     if ($used -lt $ids.Count) { $out += '+' + ($ids.Count - $used) }
+
+    # V= lists the values behind the findings (for example DoNotConnectToWindowsUpdateInternetLocations=1), in the
+    # same order, as far as the remaining room allows. '|' and ';' are separators, so they are replaced.
+    $evidence = @($Findings | Sort-Object @{ Expression = { switch ($_.Severity) { 'Critical' { 0 } 'Warning' { 1 } default { 2 } } } }, Id |
+        Where-Object { $_.PSObject.Properties['Evidence'] -and $_.Evidence } |
+        ForEach-Object { ($_.Evidence -replace '[|;]', '/') -replace '[^\x20-\x7E]', '' })
+    if ($evidence.Count -gt 0) {
+        $v = '|V='
+        foreach ($e in $evidence) {
+            $candidate = $v + $(if ($v.Length -gt 3) { ';' } else { '' }) + $e
+            if (($out.Length + $candidate.Length) -gt $MaxLength) { break }
+            $v = $candidate
+        }
+        if ($v.Length -gt 3) { $out += $v }
+    }
     if ($out.Length -gt $MaxLength) { $out = $out.Substring(0, $MaxLength) }
     $out
 }

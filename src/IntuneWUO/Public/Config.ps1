@@ -27,6 +27,9 @@ function ConvertTo-WUOConfig {
         # Lets the Remediate mode install overdue approved quality updates (the standalone Remediations package
         # turns it on; RemediateAndFallback always installs).
         InstallOverdueUpdates = $false
+        # Off: detection fails (exit 1) only for findings the remediation can fix, so report-only findings do not
+        # show as "Recurred" in Intune on every run. On: any Warning or Critical finding fails detection.
+        FailOnReportOnly    = $false
         Warnings            = @()
     }
 
@@ -55,7 +58,7 @@ function ConvertTo-WUOConfig {
         else { $warnings.Add("Invalid $name '$($Raw[$name])'; using default $($cfg[$name])") }
     }
 
-    foreach ($name in 'FixServices', 'FixPauses', 'FixPolicyKeys', 'FixSyncAndCleanup', 'FixResetStack', 'InstallOverdueUpdates') {
+    foreach ($name in 'FixServices', 'FixPauses', 'FixPolicyKeys', 'FixSyncAndCleanup', 'FixResetStack', 'InstallOverdueUpdates', 'FailOnReportOnly') {
         if (-not $Raw.ContainsKey($name)) { continue }
         $v = [string]$Raw[$name]
         if ($v -in '0', '1') { $cfg[$name] = ($v -eq '1') }

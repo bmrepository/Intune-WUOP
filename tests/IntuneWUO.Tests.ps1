@@ -84,6 +84,38 @@ Describe 'Get-WUOFinding' {
         Get-Ids $s $cfg | Should -Contain 'WSUS_REMNANT'
         Get-Ids $s $cfg | Should -Contain 'DUALSCAN_CONFLICT'
     }
+    It 'treats UseWUServer = 1 under AU as WSUS in effect, with the server as evidence' {
+        $s = New-TestState
+        $s.Gpo = @{ WUServer = 'http://wsus:8530' }
+        $s.GpoAU = @{ UseWUServer = 1 }
+        $f = Get-WUOFinding -State $s -Config $cfg | Where-Object Id -eq 'WSUS_REMNANT'
+        $f.Severity | Should -Be 'Warning'
+        $f.Evidence | Should -Be 'UseWUServer=1,WUServer=http://wsus:8530'
+    }
+    It 'reports a leftover WSUS address without UseWUServer = 1 as Info only' {
+        $s = New-TestState
+        $s.Gpo = @{ WUServer = 'http://old-wsus'; DisableDualScan = 1 }
+        $s.GpoAU = @{ UseWUServer = 0 }
+        $f = @(Get-WUOFinding -State $s -Config $cfg)
+        ($f | Where-Object Id -eq 'WSUS_REMNANT').Severity | Should -Be 'Info'
+        $f.Id | Should -Not -Contain 'DUALSCAN_CONFLICT'
+    }
+    It 'reports an Autopatch conflict value of 0 as Info, with the value as evidence' {
+        $s = New-TestState
+        $s.Gpo = @{ DoNotConnectToWindowsUpdateInternetLocations = 0 }
+        $f = Get-WUOFinding -State $s -Config $cfg | Where-Object Id -eq 'POLICY_CONFLICT_DONOTCONNECT'
+        $f.Severity | Should -Be 'Info'
+        $f.Evidence | Should -Be 'DoNotConnectToWindowsUpdateInternetLocations=0'
+    }
+    It 'tells an installed ConfigMgr client from leftovers' {
+        $s = New-TestState
+        $s.ConfigMgr = @{ Present = $true; Service = $null; Key = $false; SetupFolder = $true }
+        $f = Get-WUOFinding -State $s -Config $cfg | Where-Object Id -eq 'CONFIGMGR_PRESENT'
+        $f.Message | Should -BeLike '*leftovers*'
+        $f.Evidence | Should -Be 'ccmsetupFolder'
+        $s.ConfigMgr = @{ Present = $true; Service = 'Running'; Key = $true; SetupFolder = $true }
+        (Get-WUOFinding -State $s -Config $cfg | Where-Object Id -eq 'CONFIGMGR_PRESENT').Message | Should -BeLike '*client installed*'
+    }
     It 'treats a user pause as fixable' {
         $s = New-TestState
         $s.UpdatePolicySettings = @{ PausedQualityStatus = 1; PausedFeatureStatus = 0 }
@@ -229,5 +261,40 @@ Describe 'Format-WUOStatus' {
         $s = Format-WUOStatus -Config $cfg -Findings $many
         $s.Length | Should -BeLessOrEqual 2048
         $s | Should -Match '\+\d+$'
+    }
+    It 'adds the evidence values after the finding ids, without separator characters' {
+        $a = [pscustomobject]@{ Id = 'POLICY_CONFLICT_DONOTCONNECT'; Severity = 'Critical'; Evidence = 'DoNotConnectToWindowsUpdateInternetLocations=1' }
+        $b = [pscustomobject]@{ Id = 'WSUS_REMNANT'; Severity = 'Warning'; Evidence = 'UseWUServer=1,WUServer=http://a|b;c' }
+        Format-WUOStatus -Config $cfg -Findings @($b, $a) |
+            Should -BeLike '*|F=POLICY_CONFLICT_DONOTCONNECT,WSUS_REMNANT|V=DoNotConnectToWindowsUpdateInternetLocations=1;UseWUServer=1,WUServer=http://a/b/c'
+    }
+    It 'keeps evidence within the length limit' {
+        $many = 1..60 | ForEach-Object { [pscustomobject]@{ Id = "F_$_"; Severity = 'Warning'; Evidence = ('X' * 60) } }
+        (Format-WUOStatus -Config $cfg -Findings $many).Length | Should -BeLessOrEqual 2048
+    }
+}
+
+Describe 'Test-WUODetectionShouldFail' {
+    BeforeAll {
+        $cfg = ConvertTo-WUOConfig -Raw @{ Mode = 'Remediate'; InstallOverdueUpdates = 1 }
+        $policy = New-WUOFinding -Id 'POLICY_CONFLICT_DONOTCONNECT' -Severity Critical -Message 'x'
+        $wsus = New-WUOFinding -Id 'WSUS_REMNANT' -Severity Warning -Message 'x'
+        $overdue = New-WUOFinding -Id 'UPDATE_OVERDUE' -Severity Warning -AutoFix Updates -Message 'x'
+        $info = New-WUOFinding -Id 'RESTART_PENDING' -Severity Info -Message 'x'
+    }
+    It 'does not fail on report-only findings, so Intune does not show them as Recurred' {
+        Test-WUODetectionShouldFail -Findings @($policy, $wsus, $info) -Config $cfg | Should -BeFalse
+    }
+    It 'fails when the remediation can fix something' {
+        Test-WUODetectionShouldFail -Findings @($policy, $overdue) -Config $cfg | Should -BeTrue
+    }
+    It 'does not fail on a fixable finding whose switch is off' {
+        $off = ConvertTo-WUOConfig -Raw @{ Mode = 'Remediate'; InstallOverdueUpdates = 0 }
+        Test-WUODetectionShouldFail -Findings @($overdue) -Config $off | Should -BeFalse
+    }
+    It 'fails on any Warning or Critical finding with FailOnReportOnly = 1' {
+        $strict = ConvertTo-WUOConfig -Raw @{ Mode = 'Remediate'; FailOnReportOnly = 1 }
+        Test-WUODetectionShouldFail -Findings @($wsus) -Config $strict | Should -BeTrue
+        Test-WUODetectionShouldFail -Findings @($info) -Config $strict | Should -BeFalse
     }
 }

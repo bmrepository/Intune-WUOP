@@ -9,6 +9,7 @@ $WUOSettings = @{
     FixSyncAndCleanup     = 1    # start an Intune sync when the last one is stale; clean up when disk space is low
     InstallOverdueUpdates = 1    # install approved quality updates that are overdue (never drivers or feature updates; never restarts)
     FixResetStack         = 0    # reset the update stack when scans keep failing (side effect: wipes the Windows Update history list)
+    FailOnReportOnly      = 0    # 1 = report-only findings (Group Policy, WSUS, ConfigMgr...) also fail detection; they then show as "Recurred" after every remediation run
     FallbackGraceDays     = 3    # days after the ring deadline before an offered update counts as overdue
     FallbackMaxAttempts   = 3    # failed install attempts per update before giving up on it
     MinFreeDiskGB         = 20   # below this, report DISK_LOW and do not install

@@ -95,7 +95,8 @@ Status lines start with `WUO|v1|`: `Compliant`, `NonCompliant` (with `F=` findin
 
 - Update ring and WUfB policy reach devices over the MDM channel (Policy CSP), **not** through the Intune Management Extension. The IME only delivers scripts, Win32 apps and Remediations.
 - Hourly Remediation schedules allow 1 to 23 hours; use 1 while piloting and 8 afterwards.
-- The standalone detection script exits 1 on any Warning or Critical finding (so detection-only reports *With issues*), and its status line shows `Mode=Script`.
+- The standalone detection script exits 1 only for findings the remediation can fix (from 1.1.0; set `FailOnReportOnly` = 1 to fail on any Warning or Critical). Report-only findings (Group Policy, WSUS, ConfigMgr) stay in the status line with their values (`V=`). Its status line shows `Mode=Script`.
+- Intune's *Recurred* status means the remediation ran but detection still found an issue. Before 1.1.0 every report-only finding recurred on every run by design, which is not evidence that something is pushing the policy back. The values in `V=` and `gpresult /h` (Winning GPO, or "Local Group Policy" for values the ConfigMgr client wrote) show the real source.
 - `Update/IgnoreWindowsUpdateGroupPolicies = 1` (Windows 11 24H2 with KB5101684, build 26100.8973+) is the clean fix for leftover Group Policy. Intune-WUO only reports GPO/WSUS conflicts and never deletes domain Group Policy values.
 - Hotpatch needs Windows 11 24H2+, VBS running, Arm64 needs CHPE disabled. Intune-WUO reports blockers only.
 - An overdue update's age counts from its release date plus the ring's `DeferQualityUpdatesPeriodInDays`, then the ring's quality deadline (default 7) plus `FallbackGraceDays` (default 3). The KB number is in the `IntuneWUO` event log and the JSON log on the device, not in the Intune status line.

@@ -38,6 +38,21 @@ function Format-WUOStatus {
         $used++
     }
     if ($used -lt $ids.Count) { $out += '+' + ($ids.Count - $used) }
+
+    # V= lists the values behind the findings (for example DoNotConnectToWindowsUpdateInternetLocations=1), in the
+    # same order, as far as the remaining room allows. '|' and ';' are separators, so they are replaced.
+    $evidence = @($Findings | Sort-Object @{ Expression = { switch ($_.Severity) { 'Critical' { 0 } 'Warning' { 1 } default { 2 } } } }, Id |
+        Where-Object { $_.PSObject.Properties['Evidence'] -and $_.Evidence } |
+        ForEach-Object { ($_.Evidence -replace '[|;]', '/') -replace '[^\x20-\x7E]', '' })
+    if ($evidence.Count -gt 0) {
+        $v = '|V='
+        foreach ($e in $evidence) {
+            $candidate = $v + $(if ($v.Length -gt 3) { ';' } else { '' }) + $e
+            if (($out.Length + $candidate.Length) -gt $MaxLength) { break }
+            $v = $candidate
+        }
+        if ($v.Length -gt 3) { $out += $v }
+    }
     if ($out.Length -gt $MaxLength) { $out = $out.Substring(0, $MaxLength) }
     $out
 }

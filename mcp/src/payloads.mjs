@@ -21,7 +21,8 @@ export const SETTINGS = {
   FixPolicyKeys: { type: 'switch', def: 1 },
   FixSyncAndCleanup: { type: 'switch', def: 1 },
   FixResetStack: { type: 'switch', def: 0 },
-  InstallOverdueUpdates: { type: 'switch', def: 0 }   // the standalone scripts ship with 1
+  InstallOverdueUpdates: { type: 'switch', def: 0 },  // the standalone scripts ship with 1
+  FailOnReportOnly: { type: 'switch', def: 0 }        // 1 = report-only findings also fail detection (and recur)
 };
 
 // The recommended edition: one Remediations package built from these two self-contained scripts.
@@ -30,7 +31,7 @@ export const STANDALONE = {
   detect: 'remediation/Detect-IntuneWUO.ps1',
   remediate: 'remediation/Remediate-IntuneWUO.ps1',
   // Settings that exist in the $WUOSettings block at the top of both scripts.
-  settings: ['FixServices', 'FixPauses', 'FixSyncAndCleanup', 'InstallOverdueUpdates', 'FixResetStack', 'FallbackGraceDays',
+  settings: ['FixServices', 'FixPauses', 'FixSyncAndCleanup', 'InstallOverdueUpdates', 'FixResetStack', 'FailOnReportOnly', 'FallbackGraceDays',
     'FallbackMaxAttempts', 'MinFreeDiskGB', 'ResetCooldownDays', 'SyncStaleHours', 'ScanStaleDays', 'FixMaxRepeats']
 };
 export const STANDALONE_ACTIONS = ['create', 'enable-fixes', 'add-groups', 'disable-fixes', 'update-scripts', 'remove'];

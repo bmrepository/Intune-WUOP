@@ -8,8 +8,10 @@
     It changes nothing on the device. Its only write is the date each offered update was first seen
     (HKLM\SOFTWARE\IntuneWUO\State), which is how "overdue" is measured.
 
-    Exit 0 = healthy (no Warning or Critical finding). Exit 1 = issues found; if the package also has the
-    remediation script, Intune runs it next. A failure of this script itself exits 0 so it never triggers a fix.
+    Exit 1 = an issue the remediation script can fix; if the package has it, Intune runs it next. Exit 0 = nothing
+    to fix. Report-only findings (Group Policy, WSUS, ConfigMgr...) are still listed in the status line but do not
+    fail detection, so Intune does not show them as "Recurred" on every run; set FailOnReportOnly = 1 to make any
+    Warning or Critical finding fail. A failure of this script itself exits 0 so it never triggers a fix.
 
     Intune settings: run as SYSTEM (logged-on credentials = No), 64-bit PowerShell = Yes,
     signature check = No unless you sign the scripts. Logs: %ProgramData%\Microsoft\IntuneManagementExtension\Logs\IntuneWUO
@@ -57,7 +59,7 @@ try {
     $ring = if ($state.Autopatch) { $state.Autopatch['Ring'] } else { $null }
     Write-Output (Format-WUOStatus -Config $config -Findings $findings -Build $state.OS.Build -Ring $ring -ModeLabel 'Script')
 
-    if (@($findings | Where-Object { $_.Severity -in 'Warning', 'Critical' }).Count -gt 0) { exit 1 }
+    if (Test-WUODetectionShouldFail -Findings $findings -Config $config) { exit 1 }
     exit 0
 }
 catch {

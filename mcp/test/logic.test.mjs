@@ -383,3 +383,13 @@ test('Mode=Script status lines get standalone advice; remediation output lists a
 test('standalone validation phases exist', () => {
   for (const p of ['detect', 'fix']) assert.ok(validationChecklist(p).checks.length >= 4, p);
 });
+
+test('V= values are parsed and shown with report-only advice', async () => {
+  const c = await loadCatalogue();
+  const p = parseStatusLine('WUO|v1|NonCompliant|Mode=Script|Build=26200|Ring=Test|F=POLICY_CONFLICT_DONOTCONNECT,WSUS_REMNANT|V=DoNotConnectToWindowsUpdateInternetLocations=1;UseWUServer=1,WUServer=http://wsus:8530');
+  assert.deepEqual(p.findings, ['POLICY_CONFLICT_DONOTCONNECT', 'WSUS_REMNANT']);
+  assert.deepEqual(p.values, ['DoNotConnectToWindowsUpdateInternetLocations=1', 'UseWUServer=1,WUServer=http://wsus:8530']);
+  const r = interpretStatus(p, c);
+  assert.match(r.nextSteps.join(' '), /DoNotConnectToWindowsUpdateInternetLocations=1/);
+  assert.match(r.nextSteps.join(' '), /Recurred/);
+});

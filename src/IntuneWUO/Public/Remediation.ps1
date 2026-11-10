@@ -14,6 +14,25 @@ function Test-WUOFixEnabled {
     }
 }
 
+function Test-WUODetectionShouldFail {
+    <#
+    .SYNOPSIS
+        Decides the standalone detection script's exit code. Intune runs the remediation only after exit 1, and shows
+        "Recurred" when detection still fails afterwards, so by default only findings the remediation can act on
+        (auto-fixable, switch on, with a fix action) fail detection. Report-only findings stay in the status line.
+        With FailOnReportOnly = 1, any Warning or Critical finding fails detection.
+    #>
+    [CmdletBinding()]
+    param([object[]]$Findings = @(), [Parameter(Mandatory)]$Config)
+
+    foreach ($f in $Findings) {
+        if ($f.Severity -notin 'Warning', 'Critical') { continue }
+        if ($Config.FailOnReportOnly) { return $true }
+        if ((Test-WUOFixEnabled -Finding $f -Config $Config) -and (Get-WUOFixActionName -Finding $f)) { return $true }
+    }
+    $false
+}
+
 function Get-WUOFixActionName {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Finding)

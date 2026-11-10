@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/bmrepository/Intune-WUOP/actions/workflows/ci.yml/badge.svg)](https://github.com/bmrepository/Intune-WUOP/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Version](https://img.shields.io/badge/version-1.0.0-informational)
+![Version](https://img.shields.io/badge/version-1.1.0-informational)
 ![Windows PowerShell 5.1](https://img.shields.io/badge/Windows%20PowerShell-5.1-5391FE)
 ![Intune Remediations](https://img.shields.io/badge/Intune-Remediations-0078D4)
 ![MCP server](https://img.shields.io/badge/AI%20agents-MCP%20server%20%2B%20skill-6E40C9)
@@ -86,7 +86,7 @@ Intune-WUO is a standard Intune Remediations script package:
 
 | Package contains | What happens on a device with an issue |
 |---|---|
-| Detection script only | Reported as *With issues*, with the finding ids. Nothing is changed |
+| Detection script only | Reported as *With issues* when there is something the remediation could fix. Every finding, including report-only ones such as Group Policy or WSUS leftovers, is listed in the output with its value. Nothing is changed |
 | Detection **and** remediation script | Fixed automatically, then detection runs again and Intune shows *Issue fixed* or what remains |
 | Package unassigned | Nothing runs |
 
@@ -214,8 +214,8 @@ The agent checks your prerequisites, shows you a phased plan, and prepares each 
 ```mermaid
 flowchart TD
   A([Remediations schedule fires<br/>SYSTEM · 64-bit]) --> B[Detect-IntuneWUO.ps1<br/>collect state: policy & legacy sources · pauses · services ·<br/>diagnostic data · MDM sync · disk · restart ·<br/>WU scan · Autopatch readiness · offered updates]
-  B --> C{Warning or Critical<br/>finding?}
-  C -- No --> D([exit 0 · 'Compliant' · Without issues])
+  B --> C{A finding the<br/>remediation can fix?}
+  C -- No --> D([exit 0 · Without issues<br/>report-only findings still listed])
   C -- Yes --> E([exit 1 · 'NonCompliant' + finding ids])
   E --> F{Package has the<br/>remediation script?}
   F -- No --> G([Report only: With issues])
@@ -239,9 +239,11 @@ Detection is read-only apart from one thing: it records, in `HKLM\SOFTWARE\Intun
 
 | Area | Check | Action when the remediation script runs |
 |---|---|---|
-| **Policy conflicts** | The values Autopatch flags (`DoNotConnectToWindowsUpdateInternetLocations`, `DisableWindowsUpdateAccess`, `AU\NoAutoUpdate`) in the Group Policy keys | **Report** only: the source (domain GPO vs local policy) is not attributed yet, so nothing is removed |
-| **WSUS remnants** | `UseWUServer` / `WUServer` / `UpdateServiceUrl`, DualScan | **Report** |
-| **ConfigMgr** | ConfigMgr client present | **Report** only |
+| **Policy conflicts** | The values Autopatch flags (`DoNotConnectToWindowsUpdateInternetLocations`, `DisableWindowsUpdateAccess`, `AU\NoAutoUpdate`) set to `1` in the Group Policy keys. Any other value is a harmless leftover and is reported as Info | **Report** only: the source (domain GPO vs local policy) is not attributed yet, so nothing is removed |
+| **WSUS remnants** | WSUS in effect: `AU\UseWUServer` = 1 or an Intune `UpdateServiceUrl`, plus DualScan. A `WUServer` address left without `UseWUServer` = 1 is reported as Info | **Report** |
+| **ConfigMgr** | The `CcmExec` service (client installed), or only leftovers (`HKLM\SOFTWARE\Microsoft\CCM`, `C:\Windows\ccmsetup`) | **Report** only (Info) |
+
+**Report-only findings don't fail detection.** The remediation never changes them, so if they failed detection, Intune would show the device as *Recurred* after every run even though nothing is pushing them back. They're still listed in the status line with the value found (`V=`). To make every Warning or Critical finding fail detection anyway, set `FailOnReportOnly` = 1.
 | **Pauses** | User pause (not set by policy) | **Fix** (`FixPauses`). A pause Intune is actively setting is never touched |
 | **Services** | `wuauserv`, `UsoSvc`, `BITS`, `WaaSMedicSvc`, `wlidsvc`, `DiagTrack` set to *Disabled* (stopped trigger-start services are healthy and not flagged) | **Fix** (`FixServices`): restore the default start type |
 | **Update stack** | No successful scan in `ScanStaleDays` | **Fix only if `FixResetStack` = 1** (off by default): reset components, at most once per `ResetCooldownDays`. **Side effect: this renames `SoftwareDistribution`, which also resets the Windows Update history list in Settings (installed updates stay installed).** Only the newest backup is kept |
@@ -278,6 +280,7 @@ Each script starts with a short settings block. Edit it before uploading, and **
 | `FixSyncAndCleanup` | `1` | Start an Intune sync when the last one is stale; clean up when disk space is low |
 | `InstallOverdueUpdates` | `1` | Install approved quality updates that are overdue |
 | `FixResetStack` | `0` | Reset the update stack when scans keep failing (wipes the Windows Update history list) |
+| `FailOnReportOnly` | `0` | `1` = report-only findings (Group Policy, WSUS, ConfigMgr) also fail detection. They then show as *Recurred* after every remediation run, because the remediation never changes them |
 | `FallbackGraceDays` | `3` | Days after the ring deadline before an offered update counts as overdue |
 | `FallbackMaxAttempts` | `3` | Failed install attempts per update before giving up on it |
 | `MinFreeDiskGB` | `20` | Below this, report `DISK_LOW` and don't install |
@@ -555,7 +558,7 @@ The Intune Management Extension's own record of each run is in `...\IntuneManage
 
 | Destination | Contents |
 |---|---|
-| **Intune Remediations report** | Detection: `WUO\|v1\|<Compliant\|NonCompliant>\|Mode=Script\|Build=…\|Ring=…\|F=<ids>`. Remediation: `WUO\|v1\|Remediated\|Fixed=…\|Failed=…\|Suppressed=…\|AdminAction=<report-only ids>`. Both stay under Intune's 2,048-character limit |
+| **Intune Remediations report** | Detection: `WUO\|v1\|<Compliant\|NonCompliant>\|Mode=Script\|Build=…\|Ring=…\|F=<ids>\|V=<values>`, where `V=` lists the registry values behind the findings (for example `DoNotConnectToWindowsUpdateInternetLocations=1;UseWUServer=1,WUServer=http://wsus:8530`). Remediation: `WUO\|v1\|Remediated\|Fixed=…\|Failed=…\|Suppressed=…\|AdminAction=<report-only ids>`. Both stay under Intune's 2,048-character limit |
 | **`…\IntuneManagementExtension\Logs\IntuneWUO\`** | `IntuneWUO.jsonl` (machine-readable, includes every finding's message and each update-install decision) and `IntuneWUO.log` (CMTrace), rotated by size. Collected by *Collect diagnostics* |
 | **Event Log `IntuneWUO`** | Fixed event IDs per finding and action, for Event Viewer, Defender XDR or SIEM forwarding. Created by the first run as SYSTEM |
 
@@ -578,6 +581,7 @@ The Intune Management Extension's own record of each run is in `...\IntuneManage
 |---|---|
 | No results after hours | The Intune Management Extension hasn't fetched the package yet (every 8 hours, or on restart). Use **Run remediation**, or check `HealthScripts.log` on the device |
 | Output starts with `WUO\|v1\|Error\|` | The script itself failed; the message follows. Detection then exits 0 so it never triggers a fix |
+| Device shows *Recurred* | Intune's status for "the remediation ran, but detection still finds an issue". With 1.1.0 this only happens for findings the remediation tries to fix (for example `UPDATE_OVERDUE` waiting for a restart or blocked by a guardrail). Versions before 1.1.0 also failed detection on report-only findings, so those recurred on every run by design. Use the `V=` values and `gpresult /h` to find a policy's source |
 | A fix keeps being reported as `Suppressed` | Something keeps undoing it (often a GPO or a ConfigMgr setting). Fix the source, or deploy `IgnoreWindowsUpdateGroupPolicies` |
 | `UPDATE_OVERDUE` stays after remediation | Check the `4003` guardrail event (restart pending, low disk, on battery, install running, native maintenance window) or the `4002` HResult |
 
@@ -695,6 +699,7 @@ Results are written to `local\validation\<host>-<timestamp>.md` and `.json`. Tha
 - [ ] Attribute policy values to domain GPO vs local policy (would allow removing local leftovers; today policy findings are report-only)
 - [ ] Hotpatch enrollment detection (hotpatch findings stay skipped until then)
 - [ ] Show the KB number of an overdue update in the Intune status line (today it is in the event log and the JSON log)
+- [x] 1.1.0: report-only findings no longer fail detection (no endless *Recurred*); policy, WSUS and ConfigMgr checks flag only what is in effect; the values behind each finding are in the status line (`V=`)
 
 Contributions are welcome: open an issue or a pull request. Run both test suites (below) before you submit.
 

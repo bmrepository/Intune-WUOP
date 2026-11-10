@@ -13,9 +13,11 @@ function New-WUOFinding {
         [Parameter(Mandatory)][string]$Message,
         # Which Fix* switch would cover an automatic fix. 'None' means report-only.
         [ValidateSet('None', 'Services', 'Pauses', 'PolicyKeys', 'SyncAndCleanup', 'ResetStack', 'Updates')][string]$AutoFix = 'None',
-        [string]$Source = ''
+        [string]$Source = '',
+        # The value that triggered the finding (for example 'WUServer=http://wsus:8530'), shown in the status line.
+        [string]$Evidence = ''
     )
-    [pscustomobject]@{ Id = $Id; Severity = $Severity; Message = $Message; AutoFix = $AutoFix; Source = $Source }
+    [pscustomobject]@{ Id = $Id; Severity = $Severity; Message = $Message; AutoFix = $AutoFix; Source = $Source; Evidence = $Evidence }
 }
 
 function Get-WUOFinding {
@@ -35,28 +37,46 @@ function Get-WUOFinding {
     $gpo = if ($State.Gpo) { $State.Gpo } else { @{} }
     $gpoAu = if ($State.GpoAU) { $State.GpoAU } else { @{} }
 
-    # Values Windows Autopatch itself flags as conflicting (any value counts).
+    # Values Windows Autopatch flags as conflicting. Only 1 blocks Windows Update; a leftover 0 (for example from a
+    # GPO set to Disabled) is harmless, so it is reported as Info and never fails detection.
     $conflicts = @(
         @{ Id = 'POLICY_CONFLICT_DONOTCONNECT'; Table = $gpo;   Name = 'DoNotConnectToWindowsUpdateInternetLocations' }
         @{ Id = 'POLICY_CONFLICT_DISABLEWUACCESS'; Table = $gpo; Name = 'DisableWindowsUpdateAccess' }
         @{ Id = 'POLICY_CONFLICT_NOAUTOUPDATE'; Table = $gpoAu; Name = 'NoAutoUpdate' }
     )
     foreach ($c in $conflicts) {
-        if ($c.Table.ContainsKey($c.Name)) {
-            # Source (domain GPO vs local policy) is not attributed yet, so nothing here is auto-fixable.
-            $findings.Add((New-WUOFinding -Id $c.Id -Severity Critical -Source 'Unknown' `
-                -Message "Policy value '$($c.Name)' is set ($($c.Table[$c.Name])); Windows Autopatch flags this as a conflict."))
+        if (-not $c.Table.ContainsKey($c.Name)) { continue }
+        $value = [string]$c.Table[$c.Name]
+        # Source (domain GPO vs local policy) is not attributed yet, so nothing here is auto-fixable.
+        if ($value -eq '1') {
+            $findings.Add((New-WUOFinding -Id $c.Id -Severity Critical -Source 'Unknown' -Evidence "$($c.Name)=$value" `
+                -Message "Policy value '$($c.Name)' is set to 1; Windows Autopatch flags this as a conflict."))
+        }
+        else {
+            $findings.Add((New-WUOFinding -Id $c.Id -Severity Info -Source 'Unknown' -Evidence "$($c.Name)=$value" `
+                -Message "Policy value '$($c.Name)' is present with value '$value', which does not block Windows Update. Remove the leftover at its source."))
         }
     }
 
-    $wsus = ($gpo['UseWUServer'] -eq 1) -or $gpo['WUServer'] -or $gpo['UpdateServiceUrl'] -or $pm['UpdateServiceUrl'] -or $gpoAu['UseWUServer'] -eq 1
-    if ($wsus) {
-        $findings.Add((New-WUOFinding -Id 'WSUS_REMNANT' -Severity Warning -Source 'Unknown' `
-            -Message 'An intranet update service (WSUS) is configured.'))
+    # WSUS is in effect when UseWUServer = 1 (Group Policy, under AU) or Intune sets UpdateServiceUrl. A WUServer or
+    # UpdateServiceUrl string without UseWUServer = 1 is a leftover the Windows Update client ignores.
+    $useWsus = ([string]$gpoAu['UseWUServer'] -eq '1') -or ([string]$gpo['UseWUServer'] -eq '1')
+    $wsusUrl = @($gpo['WUServer'], $gpo['UpdateServiceUrl'], $pm['UpdateServiceUrl']) | Where-Object { $_ } | Select-Object -First 1
+    $wsusEvidence = (@(
+        $(if ($useWsus) { 'UseWUServer=1' })
+        $(if ($wsusUrl) { "WUServer=$wsusUrl" })
+    ) | Where-Object { $_ }) -join ','
+    if ($useWsus -or $pm['UpdateServiceUrl']) {
+        $findings.Add((New-WUOFinding -Id 'WSUS_REMNANT' -Severity Warning -Source 'Unknown' -Evidence $wsusEvidence `
+            -Message 'An intranet update service (WSUS) is configured and in effect.'))
         if ($gpo['DisableDualScan'] -eq 1 -or $pm['DisableDualScan'] -eq 1) {
-            $findings.Add((New-WUOFinding -Id 'DUALSCAN_CONFLICT' -Severity Critical `
+            $findings.Add((New-WUOFinding -Id 'DUALSCAN_CONFLICT' -Severity Critical -Evidence 'DisableDualScan=1' `
                 -Message 'WSUS is configured and DisableDualScan is on; the device cannot scan Windows Update.'))
         }
+    }
+    elseif ($wsusUrl) {
+        $findings.Add((New-WUOFinding -Id 'WSUS_REMNANT' -Severity Info -Source 'Unknown' -Evidence $wsusEvidence `
+            -Message 'A WSUS server address is left in the registry but UseWUServer is not 1, so Windows Update ignores it.'))
     }
 
     foreach ($s in @($State.Services)) {
@@ -115,8 +135,15 @@ function Get-WUOFinding {
     }
 
     if ($State.ConfigMgr -and $State.ConfigMgr['Present']) {
-        $findings.Add((New-WUOFinding -Id 'CONFIGMGR_PRESENT' -Severity Info `
-            -Message 'ConfigMgr client present; confirm the Windows Update workload is on Intune.'))
+        $cm = $State.ConfigMgr
+        $cmEvidence = (@(
+            $(if ($cm.Contains('Service') -and $cm['Service']) { "CcmExec=$($cm['Service'])" })
+            $(if ($cm.Contains('Key') -and $cm['Key']) { 'CCMKey' })
+            $(if ($cm.Contains('SetupFolder') -and $cm['SetupFolder']) { 'ccmsetupFolder' })
+        ) | Where-Object { $_ }) -join ','
+        $msg = if ($cm.Contains('Service') -and $cm['Service']) { 'ConfigMgr client installed; confirm the Windows Update workload is on Intune.' }
+               else { 'ConfigMgr leftovers found (no CcmExec service); the client is not installed.' }
+        $findings.Add((New-WUOFinding -Id 'CONFIGMGR_PRESENT' -Severity Info -Evidence $cmEvidence -Message $msg))
     }
 
     # Autopatch's own verdict. A missing broker is informational: it is optional and not on every device.

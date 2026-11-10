@@ -16,8 +16,8 @@
       "severity": "Critical",
       "autoFix": "None",
       "title": "DoNotConnectToWindowsUpdateInternetLocations is set",
-      "cause": "A Group Policy, local policy or stray registry write under HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate blocks the device from reaching Windows Update. Windows Autopatch flags this value.",
-      "toolAction": "Reports only.",
+      "cause": "A Group Policy, local policy (for example one written by the ConfigMgr client) or stray registry write sets HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\DoNotConnectToWindowsUpdateInternetLocations = 1, which blocks the device from reaching Windows Update. Windows Autopatch flags this value. Any other value (such as 0, written by a GPO set to Disabled) does not block anything and is reported as Info.",
+      "toolAction": "Reports only, with the value in the status line (V=). Does not fail detection unless FailOnReportOnly = 1, so it does not show as Recurred.",
       "adminAction": "Find the source (gpresult /h, RSOP, ConfigMgr client settings, imaging scripts) and remove it there. On Windows 11 24H2 builds with KB5101684 (26100.8973 and later) deploy the Intune policy Update/IgnoreWindowsUpdateGroupPolicies = 1 so Windows ignores Windows Update Group Policy."
     },
     {
@@ -25,8 +25,8 @@
       "severity": "Critical",
       "autoFix": "None",
       "title": "DisableWindowsUpdateAccess is set",
-      "cause": "Policy removes access to Windows Update features. Windows Autopatch flags this value.",
-      "toolAction": "Reports only.",
+      "cause": "Policy sets DisableWindowsUpdateAccess = 1, which removes access to Windows Update features. Windows Autopatch flags this value. Any other value is reported as Info.",
+      "toolAction": "Reports only, with the value in the status line (V=). Does not fail detection unless FailOnReportOnly = 1.",
       "adminAction": "Remove the source policy, or deploy IgnoreWindowsUpdateGroupPolicies = 1 where supported."
     },
     {
@@ -34,8 +34,8 @@
       "severity": "Critical",
       "autoFix": "None",
       "title": "AU\\NoAutoUpdate is set",
-      "cause": "Automatic Updates is switched off by policy. Windows Autopatch flags this value.",
-      "toolAction": "Reports only.",
+      "cause": "Policy sets AU\\NoAutoUpdate = 1, which switches Automatic Updates off. Windows Autopatch flags this value. Any other value is reported as Info.",
+      "toolAction": "Reports only, with the value in the status line (V=). Does not fail detection unless FailOnReportOnly = 1.",
       "adminAction": "Remove the source policy, or deploy IgnoreWindowsUpdateGroupPolicies = 1 where supported."
     },
     {
@@ -43,8 +43,8 @@
       "severity": "Warning",
       "autoFix": "None",
       "title": "An intranet update service (WSUS) is configured",
-      "cause": "UseWUServer, WUServer or UpdateServiceUrl is present, so the device may scan a WSUS server instead of Windows Update.",
-      "toolAction": "Reports only.",
+      "cause": "WSUS is in effect: Group Policy sets AU\\UseWUServer = 1, or Intune sets UpdateServiceUrl, so the device scans a WSUS server instead of Windows Update. The ConfigMgr client writes these as local policy, which survives the client's removal. A WUServer address left without UseWUServer = 1 is ignored by Windows Update and reported as Info.",
+      "toolAction": "Reports only, with UseWUServer and the server address in the status line (V=). Does not fail detection unless FailOnReportOnly = 1.",
       "adminAction": "Remove the WSUS configuration at its source, or set the SetPolicyDrivenUpdateSourceFor* policies to 0 (Windows Update). The default for those policies is 1 (WSUS)."
     },
     {
@@ -186,10 +186,10 @@
       "id": "CONFIGMGR_PRESENT",
       "severity": "Info",
       "autoFix": "None",
-      "title": "ConfigMgr client present",
-      "cause": "A co-managed device may still have Windows Update owned by ConfigMgr.",
-      "toolAction": "Reports only.",
-      "adminAction": "Move the Windows Update policies and Device configuration co-management workloads to Intune and clear ConfigMgr client Software Updates settings."
+      "title": "ConfigMgr client or leftovers present",
+      "cause": "The CcmExec service exists (the client is installed: a co-managed device may still have Windows Update owned by ConfigMgr), or only leftovers remain (HKLM\\SOFTWARE\\Microsoft\\CCM, C:\\Windows\\ccmsetup), which an uninstall often leaves behind. The status line (V=) says which.",
+      "toolAction": "Reports only. Informational: never fails detection.",
+      "adminAction": "Client installed: move the Windows Update policies and Device configuration co-management workloads to Intune and clear ConfigMgr client Software Updates settings. Leftovers only: harmless on their own, but check for WSUS settings the client wrote as local policy (WSUS_REMNANT)."
     },
     {
       "id": "AUTOPATCH_READINESS_FAILED",
